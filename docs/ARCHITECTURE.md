@@ -1,68 +1,180 @@
-# Architecture review
+# AgentGuard Enterprise v3.1 Architecture
 
-This review describes the current source implementation. Recommendations below are proposed work, not implemented capabilities.
+This document is a concise technical companion to the canonical [master architecture](../README_MASTER_ARCHITECTURE_v3.1.md). It describes the target architecture and current repository boundaries. Planned components are not implemented merely because placeholder files exist.
 
-## System boundaries
+## Architectural Law
 
-AgentGuard has two independent application surfaces sharing a Python module directory:
+```text
+SECURITY INTELLIGENCE IS ASYNCHRONOUS.
+SECURITY ENFORCEMENT IS REAL-TIME.
+NO BLOCKING AI ON THE RUNTIME HOT PATH.
+```
 
-1. `app.py` runs a synchronous Streamlit workflow using `AdversarialEngine`, `AgentGuardInterceptor`, and `AuditPDFGenerator`. Reports are stored in Streamlit session state.
-2. `main.py` runs FastAPI, using `MCPSecurityInterceptor`, `TrajectoryGraph`, and `GeneticSemanticFuzzer` with `LiveModelAdapter`. A global dictionary stores trajectories by caller-supplied agent ID.
+AgentGuard separates the real-time Security Data Plane from the Intelligence and Learning Plane. This separation protects enforcement latency from model reasoning, red-team expansion, graph traversal, training, analytics, and reporting workloads.
 
-The API does not run tools. An integrating application must submit a proposed call, evaluate the response, and enforce its own execution policy. There is no implemented MCP client/server transport or proxy. The dashboard is not an API client and does not display the API's live trajectory stream.
+## Planes and Deployable Units
 
-## Implemented workflows
+```mermaid
+flowchart TB
+    subgraph Control[Control Plane]
+        WEB[Web Console]
+        API[Control API]
+        GOV[Tenancy · Assets · Policies · Findings · Approvals]
+        WEB --> API --> GOV
+    end
 
-### Audit and reporting
+    subgraph Runtime[Real-Time Security Data Plane]
+        GW[Stateless Runtime Gateway]
+        CACHE[L1/L2 Cache]
+        CP[Compiled Policy]
+        DET[Bounded Detectors]
+        INC[Incremental Trajectory]
+        PRE[Precomputed Risk]
+        GATE[Execution Gate]
+        GW --> CACHE --> CP --> DET --> INC --> PRE --> GATE
+    end
 
-The audit engine iterates over five static vectors. It chooses mock execution when the model name begins with `mock-` or the API key is absent; otherwise it uses synchronous LiteLLM completion. No tool definitions or agent execution loop are passed into that request. Returned text and any tool-call metadata are checked with category-specific heuristics.
+    subgraph Intelligence[Intelligence and Learning Plane]
+        BUS[Event Backbone]
+        AEGIS[AEGIS]
+        GRAPH[Attack Graph]
+        RED[Adaptive Red Team]
+        ANALYTICS[Analytics and Reporting]
+        BUS --> AEGIS
+        AEGIS <--> GRAPH
+        AEGIS --> RED
+        BUS --> ANALYTICS
+    end
 
-Findings become typed Pydantic records. Risk is the percentage of vectors producing findings; a score of at most 20% yields `PASSED`. The PDF consumes this report directly. This is a local test outcome, despite the compliance wording currently present in the product.
+    CLIENT[Agent / MCP Client] --> GW
+    GATE --> TARGET[Tool / MCP / API / Resource]
+    GATE -.events.-> BUS
+    AEGIS -.risk profiles.-> CACHE
+    API -.compiled policy artifacts.-> CACHE
+```
 
-### Call inspection and trajectories
+The initial deployable units remain deliberately coarse-grained:
 
-The API independently inspects the proposed call and appends it to its trajectory, even when inspection blocks it. Tool-name substrings select one of SQL, file, or network inspection branches. Unmatched names receive an allowed verdict.
+- `apps/control-api/` for the enterprise control surface;
+- `apps/runtime-gateway/` for real-time enforcement;
+- `apps/worker/` for durable asynchronous work;
+- `apps/web-console/` for administration and security operations.
 
-The graph stores a sequential list of nodes and edges between consecutive calls. Its score is `min(round(0.4 * node_weights + 0.6 * edge_weights, 2), 1.0)`. A database/file-to-network transition adds an edge weight of `0.8`. An edge weight of at least `0.7`, or cumulative risk of at least `0.7`, produces `ANOMALY_DETECTED`. This does not override the inspector's decision.
+Components may split into services only when scale or operational isolation justifies it.
 
-### Genetic fuzzing
+## Runtime Hot Path
 
-The fuzzer creates an initial population, evaluates each generation with `asyncio.gather`, scores responses, retains high-scoring candidates, and constructs the next generation through mutation or crossover. Scoring uses English refusal phrases, target keywords, and formatting markers. It is not an independent evaluator of attack success.
+Allowed synchronous work is deliberately narrow:
 
-The live adapter spaces request starts using a lock and delay, then performs provider calls outside that lock. Calls can overlap; this is not a global concurrency limiter. Rate-limit retries are handled per call. The API creates a new adapter for each fuzzing request, so pacing is not shared across requests.
+1. identity, tenant, and environment context lookup;
+2. capability lookup;
+3. compiled-policy evaluation;
+4. bounded deterministic detection;
+5. incremental trajectory update;
+6. precomputed AEGIS risk lookup;
+7. approval-token lookup;
+8. bounded CPU calculation and decision serialization.
 
-## Strengths
+The runtime gateway is stateless and horizontally scalable. It does not load full trajectory history, query large PostgreSQL datasets, traverse the attack graph, call an LLM, wait for the event broker, or generate reports.
 
-- Small modules with clear entry points make the prototype easy to inspect.
-- Pydantic models provide useful boundaries for findings and inspection results.
-- A mock audit and local demonstrations support exploration without credentials.
-- Per-call inspection and sequence analysis expose two distinct kinds of risk.
-- The fuzzer accepts an async evaluation function, allowing alternative targets without changing mutation logic.
+### Latency targets
 
-## Findings and recommended changes
+| Percentile | Initial engineering target |
+| --- | --- |
+| p50 | `< 2 ms` |
+| p95 | `< 5 ms` |
+| p99 | `< 10 ms` |
+| Critical maximum | `< 20 ms` under normal production load |
 
-| Priority | Finding | Recommended change |
+These are unverified SLO targets until benchmark evidence exists. A release exceeding its approved regression threshold is blocked.
+
+### Cache and policy lifecycle
+
+```text
+Read path: L1 local memory → L2 Redis → L3 PostgreSQL/source of truth
+
+Policy path: Validate → Version → Compile → Optimize → Hash/Sign
+             → Publish → Runtime Cache
+```
+
+Normal traffic should resolve from L1. L3 is a recovery/source-of-truth layer rather than a routine hot-path dependency. Cache invalidation travels through versioned events.
+
+Compiled policy artifacts are immutable, versioned, hashed, and signed. Runtime decisions record which policy and cache source produced the result.
+
+### Incremental state and precomputed intelligence
+
+Trajectory processing applies `current trajectory state + new signal` with bounded work. Full-history reconciliation and recomputation run asynchronously.
+
+AEGIS precomputes agent, tool, MCP, behavioral, vulnerability-similarity, and watch-flag profiles. Runtime reads these profiles from cache and never waits for AEGIS reasoning.
+
+## Intelligence and Learning Plane
+
+The asynchronous plane owns:
+
+- four-part AEGIS memory;
+- attack planning and adaptive 2X–50X exploration;
+- attack-graph updates and full traversal;
+- vulnerability DNA and similarity analysis;
+- hot, warm, and cold learning;
+- threat-research validation;
+- remediation regression replay;
+- analytics and reporting.
+
+Learning outputs remain proposals. Detector, strategy, policy, and model changes pass historical evaluation, false-positive and performance evaluation, sandbox, shadow, canary, human approval, signing, and reversible release.
+
+## Backpressure and Isolation
+
+Work priority is:
+
+```text
+P1 Runtime Enforcement
+P2 Critical Evidence and Audit
+P3 Learning
+P4 Analytics
+P5 Background Red-Team Expansion
+```
+
+Workers and event consumers use bounded queues, batching, dead-letter queues, adaptive sampling, load shedding, and broker-lag alerts. Broker degradation must not stop runtime decisions. A tenant's red-team, telemetry, or reporting load must not degrade another tenant's enforcement latency.
+
+## Failure Modes
+
+Hot-path dependencies use strict timeouts and circuit breakers. Failure behavior is capability-specific:
+
+- high-impact capabilities such as `payment.execute`, `secret.read`, `identity.admin`, and `shell.execute` fail closed;
+- low-risk capabilities may fail open only through an explicit versioned policy;
+- deeper analysis produces `REQUIRE_APPROVAL`, `SANDBOX`, `STEP_UP_AUTH`, or `ASYNC_DEEP_ANALYSIS` rather than waiting for intelligence work.
+
+## Contracts
+
+Versioned schemas connect all planes. In addition to the original security, learning, policy, capability, finding, evidence, tenant, and approval contracts, v3.1 adds:
+
+- cache invalidation events;
+- compiled policy artifacts;
+- runtime decision metadata;
+- precomputed risk profiles;
+- priority worker job envelopes.
+
+A runtime decision includes at least `decision_id`, `policy_version`, `policy_hash`, `runtime_version`, `risk_score`, `reason_codes`, `cache_source`, `latency_us`, and `trajectory_version`.
+
+## Data Systems
+
+| System | Role | Hot-path status |
 | --- | --- | --- |
-| High | Unknown tools are allowed; policies rely on substrings and incomplete argument matching. | Introduce an explicit tool registry, argument schemas, and configurable default-deny policy. Use context-aware SQL/path/network validation. |
-| High | API endpoints have no authentication or tenant isolation, and fuzzing has no workload bounds. | Add authenticated ownership, positive bounded request fields, quotas, and job-level execution limits before shared deployment. |
-| High | Provider errors become response text; missing dashboard credentials silently select simulation. | Model errors separately, exclude failed evaluations from security scoring, and make execution mode explicit. |
-| High | UI and PDF compliance labels overstate what the finding-rate threshold measures. | Rename these to audit outcome and document the limits of the evaluation. |
-| Medium | Three inspection implementations diverge; dashboard constructor policy flags are stored but not applied. | Consolidate rules and results behind one tested policy interface; enforce or remove configuration flags. |
-| Medium | Trajectory storage is unbounded and process-local; blocked attempts and executed actions are indistinguishable. | Add retention limits, session ownership, persistence where needed, and explicit attempt/execution status. |
-| Medium | Fuzzer retained candidates can repeat and share mutable references; evaluation counts are misleading. | Return immutable evaluation records, count actual attempts, deduplicate findings, and separate scores from verified outcomes. |
-| Medium | `mutation_rate` is accepted but unused; request sizes/generation counts are not constrained. | Define mutation semantics and validate population and generation limits. |
-| Medium | `test_*.py` files are demonstrations with no assertions. | Add deterministic unit cases and API contract tests, including unknown tools, error paths, and quota limits. |
-| Medium | Provider identifiers are embedded in source; adapter pacing is per instance. | Centralize provider configuration and introduce a shared rate/concurrency budget. |
-| Low | Earlier scanner/firewall/reporter modules are not wired into current entry points. | Consolidate or clearly mark them as experimental to reduce maintenance ambiguity. |
+| Process-local L1 | Compiled policy, identity/capability context, incremental state, risk profile | Preferred |
+| Redis L2 | Shared cache, rate limits, trajectory state, locks | Bounded fallback |
+| PostgreSQL L3 | Tenant and configuration source of truth | Not a normal dependency |
+| Redpanda/Kafka | Events and durable worker jobs | Asynchronous |
+| ClickHouse | Telemetry and runtime analytics | Asynchronous |
+| S3-compatible storage | Evidence, reports, artifacts, snapshots | Asynchronous |
 
-## Suggested implementation sequence
+## Verification
 
-1. Establish reproducible dependency installation and assertion-based tests for existing behavior.
-2. Unify inspection policies and define the contract between proposed calls, decisions, and execution.
-3. Correct execution-mode reporting, provider error handling, and fuzzing result accounting.
-4. Add API identity, bounded inputs, session retention, and workload management.
-5. Align product/report terminology with measured outcomes and localize the interface.
+Performance releases measure p50, p95, p99, maximum latency, throughput, CPU/request, memory/request, L1 hit rate, Redis hit rate, policy-evaluation latency, and trajectory-update latency.
 
-## Review validation
+Required scenarios include 1K and 10K requests per second, burst traffic, cold cache, Redis latency/loss, broker outage, PostgreSQL slowdown, policy-invalidation storms, noisy-neighbor workloads, and parallel red-team campaigns.
 
-Source files and entry-point imports were inspected. The supplied `venv` cannot run on this machine: its launcher refers to a Python installation under another user's directory. A fresh environment is required before claiming runtime validation. The dependency manifest lists direct dependencies and supported major-version ranges; it is not a verified lockfile. No live provider requests were made during this review.
+Security verification includes tenant isolation, policy and approval bypass, audit tampering, memory poisoning, sandbox escape, secret access, privilege escalation, and unsafe self-modification.
+
+## Current State
+
+The v3.1 paths are ownership placeholders. The earlier Python prototype at the repository root demonstrates audit, heuristic interception, trajectory analysis, fuzzing, and reporting but does not satisfy this production architecture. Migration must happen contract-first and must not preserve unsafe defaults such as implicit trust based on tool names.
