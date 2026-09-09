@@ -4,10 +4,10 @@ This file is the operational architecture guide for AI coding assistants working
 
 ## 1. Repository State
 
-AgentGuard is transitioning from a Python research prototype to the Enterprise v3 architecture.
+AgentGuard is transitioning from a Python research prototype to the Enterprise v3.1 architecture. `README_MASTER_ARCHITECTURE_v3.1.md` is the canonical architecture source; this file translates it into operational rules for coding agents.
 
 - Root-level Python files and `core/` contain the legacy prototype.
-- `apps/`, `packages/`, `schemas/`, `infra/`, `migrations/`, and `tests/` define the Enterprise v3 foundation.
+- `apps/`, `packages/`, `schemas/`, `infra/`, `migrations/`, `benchmarks/`, and `tests/` define the Enterprise v3.1 foundation.
 - Most v3 files are intentionally blank ownership placeholders. An empty file does not represent an implemented feature.
 - Do not present planned v3 capabilities as working behavior.
 - Do not rewrite or delete legacy code unless the assigned task explicitly includes migration or removal.
@@ -36,6 +36,9 @@ AEGIS may learn, generate attacks, propose detectors, and recommend policies. It
 10. Audit and evidence records must be immutable or tamper-evident.
 11. Red-team execution defaults to non-destructive and stays within written Rules of Engagement.
 12. Every privileged or long-running operation must respect safety budgets and a kill switch.
+13. Security intelligence is asynchronous; security enforcement is real-time.
+14. No LLM call, full attack-graph traversal, training, analytics query, report generation, or other unbounded work may block the runtime hot path.
+15. Runtime performance is a security property. A change that exceeds the release latency threshold must block release.
 
 ## 4. Deployable Units
 
@@ -50,6 +53,8 @@ Primary owner: Developer B — Platform / Enterprise.
 Security data-plane entry point for event normalization, identity and tenant context, capability lookup, policy enforcement, trajectory signals, execution gating, MCP traffic, evidence capture, and telemetry.
 
 Primary owner: Developer A — Core Security / AEGIS.
+
+The v3.1 runtime gateway contains dedicated `hot_path/`, `cache/`, `policy/`, `trajectory/`, and `risk/` boundaries. The gateway must remain stateless and horizontally scalable; persistent or full-history computation belongs on the asynchronous path.
 
 ### `apps/worker/`
 
@@ -93,6 +98,11 @@ Treat `schemas/` as the integration boundary and source of truth for cross-compo
 - `schemas/tenancy/tenant_context.schema.json`
 - `schemas/approvals/approval_request.schema.json`
 - `schemas/approvals/approval_decision.schema.json`
+- `schemas/events/cache_invalidation_event.schema.json`
+- `schemas/policies/compiled_policy.schema.json`
+- `schemas/runtime/runtime_decision.schema.json`
+- `schemas/risk/risk_profile.schema.json`
+- `schemas/queues/job_envelope.schema.json`
 
 When changing a shared contract:
 
@@ -127,6 +137,51 @@ Agent / MCP Client
 ```
 
 Each decision should be explainable and correlated where possible through `trace_id`, `tenant_id`, `agent_id`, `session_id`, `trajectory_id`, `event_id`, `policy_decision_id`, and `finding_id`.
+
+### Runtime decision metadata
+
+Each runtime decision carries at least `decision_id`, `policy_version`, `policy_hash`, `runtime_version`, `risk_score`, `reason_codes`, `cache_source`, `latency_us`, and `trajectory_version`.
+
+## 7.1 Ultra-Low-Latency Runtime Rules
+
+The runtime hot path may perform only bounded identity/tenant lookup, capability lookup, compiled-policy evaluation, deterministic detection, incremental trajectory update, precomputed-risk lookup, approval-token lookup, and bounded CPU calculation.
+
+Use three cache levels:
+
+```text
+L1 process-local memory
+  → L2 Redis
+  → L3 PostgreSQL/source of truth
+```
+
+Normal requests should resolve from L1 whenever possible. L3, ClickHouse, report generation, model reasoning, full graph traversal, and warm/cold learning are never normal hot-path dependencies. Invalidation is event-driven.
+
+Policy publication follows:
+
+```text
+Validate → Version → Compile → Optimize → Hash/Sign → Publish → Runtime Cache
+```
+
+Runtime consumes the compiled artifact and does not parse policy JSON for each request. Trajectory updates use `current state + new signal`; full recomputation runs asynchronously. AEGIS publishes precomputed agent, tool, MCP, behavioral, similarity, and watch-flag risk profiles for cache lookup.
+
+When heavy analysis is required, return a policy-controlled outcome such as `REQUIRE_APPROVAL`, `SANDBOX`, `STEP_UP_AUTH`, or `ASYNC_DEEP_ANALYSIS`. Do not wait for the intelligence plane.
+
+Initial benchmark targets are:
+
+```text
+p50 < 2 ms
+p95 < 5 ms
+p99 < 10 ms
+critical maximum under normal production load < 20 ms
+```
+
+Treat these as targets until verified. Release measurements include latency percentiles and maximum, throughput, CPU/request, memory/request, L1 and Redis hit rates, policy-evaluation latency, and trajectory-update latency.
+
+Use strict timeouts and capability-specific failure modes. High-impact capabilities including `payment.execute`, `secret.read`, `identity.admin`, and `shell.execute` fail closed. Low-risk fail-open behavior requires explicit policy.
+
+Implement bounded queues, batching, dead-letter queues, adaptive sampling, load shedding, priority queues, and broker-lag alerts. Priority order is P1 runtime enforcement, P2 critical evidence/audit, P3 learning, P4 analytics, and P5 background red-team expansion. Lower-priority work must never consume resources reserved for runtime enforcement.
+
+Required performance and failure scenarios include 1K and 10K requests/second, bursts, cold cache, Redis latency or loss, broker outage, PostgreSQL slowdown, policy-invalidation storms, noisy neighbors, and parallel red-team campaigns.
 
 ## 8. AEGIS Model
 
@@ -198,11 +253,12 @@ Do not run aggressive tests against third parties outside written authorization.
 
 Before coding:
 
-1. identify the assigned owner and exact component;
-2. inspect the relevant shared schemas and adjacent boundaries;
-3. state whether the task affects tenant context, privilege, evidence, audit, or execution;
-4. preserve unrelated developer work and empty placeholders;
-5. define the tests and evidence needed to verify the change.
+1. read `README_MASTER_ARCHITECTURE_v3.1.md`;
+2. identify the assigned owner and exact component;
+3. inspect the relevant shared schemas and adjacent boundaries;
+4. state whether the task affects tenant context, privilege, evidence, audit, execution, or hot-path latency;
+5. preserve unrelated developer work and empty placeholders;
+6. define the tests, evidence, and performance measurements needed to verify the change.
 
 During implementation:
 
@@ -213,6 +269,9 @@ During implementation:
 - propagate correlation and tenant identifiers;
 - distinguish provider failures from security findings;
 - bound queues, retries, concurrency, memory, and retained trajectory state;
+- keep intelligence-plane dependencies off the runtime hot path;
+- record cache source and runtime latency in each decision;
+- use ReDoS-safe bounded detectors without external network dependencies;
 - never commit secrets, customer data, provider responses containing secrets, or production evidence.
 
 Before handoff:
@@ -222,6 +281,7 @@ Before handoff:
 3. verify audit/evidence output and failure behavior;
 4. document schema versions and migrations;
 5. report changed files, tests, known limits, and the next integration dependency.
+6. report hot-path benchmark impact when runtime code changed.
 
 ## 13. Legacy Prototype Guidance
 
@@ -239,6 +299,6 @@ When migrating legacy behavior:
 
 ## 14. Definition of Done for a Change
 
-A change is complete when its ownership is clear, contracts remain compatible, tenant boundaries are enforced, runtime decisions are explainable, evidence and audit events are produced where required, resource use is bounded, failure paths are tested, and the handoff describes how another component can integrate with it.
+A change is complete when its ownership is clear, contracts remain compatible, tenant boundaries are enforced, runtime decisions are explainable, evidence and audit events are produced where required, resource use is bounded, failure paths are tested, runtime SLO impact is measured where applicable, and the handoff describes how another component can integrate with it.
 
 If a task conflicts with these boundaries, do not silently relax the architecture. Surface the conflict and request an explicit architecture decision.
