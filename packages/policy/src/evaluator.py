@@ -1,17 +1,20 @@
 """Deterministic evaluation of a compiled policy -> PolicyDecision.
 
 Pure function of (optimized ruleset, environment, capability resolution, resource
-scope, dependency health). No I/O, no LLM, bounded work - safe for the hot path.
-Reproduces the Sprint A1 decision semantics, now driven by the compiled artifact.
+scope, dependency health) plus optional runtime signals (deterministic detectors,
+trajectory chain risk, precomputed AEGIS risk). Signals may only ESCALATE an
+ALLOW to a more restrictive outcome - they never relax a BLOCK/approval decision.
+No I/O, no LLM, bounded - safe for the hot path.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Optional
 
 from capability_registry import CapabilityResolution, ToolCapability
 from decisions import PolicyDecision
 from enums import (
-    ApprovalMode, Decision, Environment, FailMode, ReasonCode, Sensitivity,
+    ApprovalMode, Decision, DetectorSeverity, Environment, FailMode, ReasonCode, Sensitivity,
 )
 from optimizer import OptimizedRuleset
 
@@ -24,7 +27,7 @@ def fail_mode_for(ruleset: OptimizedRuleset, capability_id: Optional[str],
         record.fail_open_allowed or capability_id in ruleset.fail_open
     ):
         return FailMode.FAIL_OPEN
-    return FailMode.FAIL_CLOSED  # safe default
+    return FailMode.FAIL_CLOSED
 
 
 def _risk(ruleset: OptimizedRuleset, record: Optional[ToolCapability]) -> float:
@@ -37,6 +40,36 @@ def _risk(ruleset: OptimizedRuleset, record: Optional[ToolCapability]) -> float:
     return round(min(score, 1.0), 4)
 
 
+def _escalate(
+    base: PolicyDecision, *,
+    detector_severity: Optional[DetectorSeverity],
+    detector_reasons: tuple[ReasonCode, ...],
+    chain_egress: bool,
+    precomputed_high: bool,
+) -> PolicyDecision:
+    """Only ALLOW is escalated; more restrictive never relaxed."""
+    if base.decision != Decision.ALLOW:
+        return base
+    if detector_severity == DetectorSeverity.CRITICAL:
+        return replace(base, decision=Decision.BLOCK,
+                       reason_codes=(ReasonCode.DETECTOR_ESCALATION_CRITICAL,) + detector_reasons
+                       + (ReasonCode.BUILTIN_RULESET,), risk_score=max(base.risk_score, 0.9))
+    if detector_severity == DetectorSeverity.HIGH or chain_egress:
+        reasons: list[ReasonCode] = []
+        if detector_severity == DetectorSeverity.HIGH:
+            reasons.append(ReasonCode.DETECTOR_ESCALATION_HIGH)
+        if chain_egress:
+            reasons.append(ReasonCode.TRAJECTORY_SENSITIVE_THEN_EGRESS)
+        return replace(base, decision=Decision.SANDBOX,
+                       reason_codes=tuple(reasons) + detector_reasons + (ReasonCode.BUILTIN_RULESET,),
+                       risk_score=max(base.risk_score, 0.7))
+    if precomputed_high:
+        return replace(base, decision=Decision.REQUIRE_APPROVAL,
+                       reason_codes=(ReasonCode.PRECOMPUTED_RISK_HIGH, ReasonCode.BUILTIN_RULESET),
+                       risk_score=max(base.risk_score, 0.7))
+    return base
+
+
 def evaluate(
     ruleset: OptimizedRuleset,
     *,
@@ -44,6 +77,10 @@ def evaluate(
     resolution: CapabilityResolution,
     resource_scope: Optional[str],
     dependency_ok: bool = True,
+    detector_severity: Optional[DetectorSeverity] = None,
+    detector_reasons: tuple[ReasonCode, ...] = (),
+    chain_egress: bool = False,
+    precomputed_high: bool = False,
 ) -> PolicyDecision:
     record = resolution.record
     capability_id = resolution.capability_id
@@ -96,4 +133,6 @@ def evaluate(
         )
         return build(Decision.REQUIRE_APPROVAL, [reason, ReasonCode.CAPABILITY_KNOWN])
 
-    return build(Decision.ALLOW, [ReasonCode.ALLOWED_LOW_RISK, ReasonCode.CAPABILITY_KNOWN])
+    base = build(Decision.ALLOW, [ReasonCode.ALLOWED_LOW_RISK, ReasonCode.CAPABILITY_KNOWN])
+    return _escalate(base, detector_severity=detector_severity, detector_reasons=detector_reasons,
+                     chain_egress=chain_egress, precomputed_high=precomputed_high)

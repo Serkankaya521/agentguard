@@ -29,6 +29,8 @@ CONTRACTS: dict[str, str] = {
     "policy": "policies/policy.schema.json",
     "compiled_policy": "policies/compiled_policy.schema.json",
     "cache_invalidation_event": "events/cache_invalidation_event.schema.json",
+    "risk_profile": "risk/risk_profile.schema.json",
+    "learning_event": "events/learning_event.schema.json",
 }
 
 
