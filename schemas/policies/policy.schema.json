@@ -1,1 +1,43 @@
-
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentguard.dev/schemas/policies/policy.schema.json",
+  "title": "Policy",
+  "description": "Author-facing policy source. Developer B owns authoring/publication lifecycle; Developer A owns the compiler/evaluator that consumes it.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["schema_version", "policy_id", "version", "ruleset"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "policy_id": {"type": "string", "minLength": 1},
+    "version": {"type": "string", "minLength": 1},
+    "ruleset": {"$ref": "#/$defs/ruleset"}
+  },
+  "$defs": {
+    "decision": {"enum": ["ALLOW", "BLOCK", "REQUIRE_APPROVAL", "SANDBOX", "REDACT", "STEP_UP_AUTH", "ASYNC_DEEP_ANALYSIS"]},
+    "ruleset": {
+      "type": "object",
+      "required": ["fail_closed_capabilities", "unknown_capability", "destructive_side_effects", "critical_requires_approval", "risk_weights"],
+      "properties": {
+        "fail_closed_capabilities": {"type": "array", "items": {"type": "string"}},
+        "fail_open_capabilities": {"type": "array", "items": {"type": "string"}},
+        "unknown_capability": {
+          "type": "object",
+          "required": ["production", "default"],
+          "properties": {"production": {"$ref": "#/$defs/decision"}, "default": {"$ref": "#/$defs/decision"}}
+        },
+        "destructive_side_effects": {"type": "array", "items": {"type": "string"}},
+        "critical_requires_approval": {"type": "boolean"},
+        "risk_weights": {
+          "type": "object",
+          "required": ["sensitivity", "side_effect", "unknown"],
+          "properties": {
+            "sensitivity": {"type": "object"},
+            "side_effect": {"type": "object"},
+            "unknown": {"type": "number", "minimum": 0, "maximum": 1}
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

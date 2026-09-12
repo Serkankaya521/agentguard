@@ -26,6 +26,13 @@ CONTRACTS: dict[str, str] = {
     "security_event": "events/security_event.schema.json",
     "policy_decision": "policies/policy_decision.schema.json",
     "runtime_decision": "runtime/runtime_decision.schema.json",
+    "policy": "policies/policy.schema.json",
+    "compiled_policy": "policies/compiled_policy.schema.json",
+    "cache_invalidation_event": "events/cache_invalidation_event.schema.json",
+    "risk_profile": "risk/risk_profile.schema.json",
+    "learning_event": "events/learning_event.schema.json",
+    "evidence": "evidence/evidence.schema.json",
+    "finding": "findings/finding.schema.json",
 }
 
 

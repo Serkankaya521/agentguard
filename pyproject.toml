@@ -1,11 +1,14 @@
-# Repo-level tooling config for AgentGuard Enterprise v3.1.
-# Scope: developer tooling only (pytest path wiring). This is NOT a packaging or
-# deployment decision; a proper workspace layout is a shared item with Developer B.
+# Repo-level tooling config (developer tooling only; not packaging/deployment).
 [tool.pytest.ini_options]
 pythonpath = [
-    "packages/domain/src",
-    "packages/contracts/src",
-    "packages/policy/src",
     "apps/runtime-gateway/src",
+    "packages/policy/src",
+    "packages/detectors/src",
+    "packages/aegis/src",
+    "packages/attack-graph/src",
+    "packages/contracts/src",
+    "packages/evidence/src",
+    "packages/domain/src",
+    "apps/worker/src",
 ]
 testpaths = ["tests", "apps/runtime-gateway/tests"]
