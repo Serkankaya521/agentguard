@@ -1,1 +1,23 @@
-
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentguard.dev/schemas/capabilities/tool_capability.schema.json",
+  "title": "ToolCapability",
+  "description": "Authoritative capability metadata for a tool. Authority comes from this registry entry, never from the tool name.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["schema_version", "tool_id", "capabilities", "side_effect", "sensitivity", "approval_mode", "version"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "tool_id": {"type": "string", "minLength": 1},
+    "capabilities": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "resource_patterns": {"type": "array", "items": {"type": "string"}},
+    "side_effect": {"enum": ["none", "read", "write", "delete", "network", "execute", "admin"]},
+    "data_classes": {"type": "array", "items": {"type": "string"}},
+    "sensitivity": {"enum": ["low", "medium", "high", "critical"]},
+    "environment": {"type": "string"},
+    "approval_mode": {"enum": ["never", "conditional", "always"]},
+    "fail_open_allowed": {"type": "boolean"},
+    "version": {"type": "string"}
+  },
+  "additionalProperties": true
+}
