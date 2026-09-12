@@ -38,6 +38,10 @@ class AsyncEventPublisher:
             "occurred_at": datetime.now(timezone.utc).isoformat(),
             "payload_ref": getattr(event, "payload_hash", None),
             "summary": redact({
+                "tool_id": getattr(event, "tool_id", None),
+                "environment": getattr(getattr(event, "tenant", None), "environment", None).value
+                    if getattr(getattr(event, "tenant", None), "environment", None) is not None else None,
+                "agent_id": getattr(getattr(event, "tenant", None), "agent_id", None),
                 "decision": runtime_decision.decision.value,
                 "action_state": runtime_decision.action_state.value,
                 "reason_codes": [r.value for r in runtime_decision.reason_codes],
