@@ -31,6 +31,7 @@ CONTRACTS: dict[str, str] = {
     "cache_invalidation_event": "events/cache_invalidation_event.schema.json",
     "risk_profile": "risk/risk_profile.schema.json",
     "learning_event": "events/learning_event.schema.json",
+    "evidence": "evidence/evidence.schema.json",
 }
 
 
