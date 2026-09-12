@@ -1,1 +1,33 @@
-
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentguard.dev/schemas/findings/finding.schema.json",
+  "title": "Finding",
+  "description": "Security finding with lifecycle state. A confirmed finding captures root cause, architecture, capability/permission/MCP topology, mutations, evidence pattern, remediation, and a regression fingerprint.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["schema_version", "finding_id", "tenant_id", "state", "root_cause"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "finding_id": {"type": "string", "minLength": 1},
+    "tenant_id": {"type": "string", "minLength": 1},
+    "state": {"enum": ["SUSPECTED", "VALIDATING", "CONFIRMED", "FIX_PROPOSED", "RETESTING", "RESOLVED_VERIFIED", "REOPENED", "FALSE_POSITIVE"]},
+    "root_cause": {"type": "string"},
+    "affected_architecture": {"type": ["string", "null"]},
+    "model_family": {"type": ["string", "null"]},
+    "agent_type": {"type": ["string", "null"]},
+    "tool_capability": {"type": ["string", "null"]},
+    "permission_topology": {"type": ["string", "null"]},
+    "mcp_topology": {"type": ["string", "null"]},
+    "preconditions": {"type": "array", "items": {"type": "string"}},
+    "successful_mutations": {"type": "array", "items": {"type": "string"}},
+    "failed_mutations": {"type": "array", "items": {"type": "string"}},
+    "side_effects": {"type": "array", "items": {"type": "string"}},
+    "evidence_pattern": {"type": ["string", "null"]},
+    "evidence_backed": {"type": "boolean"},
+    "remediation": {"type": ["string", "null"]},
+    "regression_fingerprint": {"type": ["string", "null"]},
+    "created_at": {"type": ["string", "null"]},
+    "updated_at": {"type": ["string", "null"]}
+  },
+  "additionalProperties": true
+}

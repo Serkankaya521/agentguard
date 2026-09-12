@@ -32,6 +32,7 @@ CONTRACTS: dict[str, str] = {
     "risk_profile": "risk/risk_profile.schema.json",
     "learning_event": "events/learning_event.schema.json",
     "evidence": "evidence/evidence.schema.json",
+    "finding": "findings/finding.schema.json",
 }
 
 

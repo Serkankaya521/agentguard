@@ -19,7 +19,9 @@ _MODULES = [test_contracts, test_pipeline, test_compiled_policy, test_cache, tes
             test_detectors, test_trajectory, test_execution_gate, test_a3_pipeline]
 
 import test_evidence, test_aegis, test_attack_graph, test_a4_worker  # noqa: E402
+import test_a5_redteam, test_a5_regression  # noqa: E402
 _MODULES += [test_evidence, test_aegis, test_attack_graph, test_a4_worker]
+_MODULES += [test_a5_redteam, test_a5_regression]
 
 loader = unittest.TestLoader()
 suite = unittest.TestSuite()
