@@ -13,6 +13,7 @@ _SRC_ROOTS = (
     "packages/domain/src",
     "packages/contracts/src",
     "packages/policy/src",
+    "packages/detectors/src",
     "apps/runtime-gateway/src",
 )
 for _p in _SRC_ROOTS:

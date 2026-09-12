@@ -1,1 +1,21 @@
-
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentguard.dev/schemas/events/learning_event.schema.json",
+  "title": "LearningEvent",
+  "description": "Asynchronous learning/telemetry event emitted off the hot path. Carries correlation + a decision summary, never PII or raw payloads.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["schema_version", "event_id", "trace_id", "tenant_id", "kind", "priority", "occurred_at", "summary"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "event_id": {"type": "string", "minLength": 1},
+    "trace_id": {"type": "string", "minLength": 1},
+    "tenant_id": {"type": "string", "minLength": 1},
+    "kind": {"enum": ["decision", "finding", "attack", "telemetry"]},
+    "priority": {"type": "integer", "minimum": 1, "maximum": 5},
+    "occurred_at": {"type": "string"},
+    "payload_ref": {"type": ["string", "null"]},
+    "summary": {"type": "object"}
+  },
+  "additionalProperties": true
+}
