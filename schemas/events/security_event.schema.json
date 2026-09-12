@@ -1,1 +1,26 @@
-
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentguard.dev/schemas/events/security_event.schema.json",
+  "title": "SecurityEvent",
+  "description": "Normalized inbound security event. All sources (HTTP/MCP/SDK/framework/wrapper) converge to this shape.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["schema_version", "event_id", "trace_id", "occurred_at", "source", "action_state", "tenant", "tool_id", "payload_hash"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "event_id": {"type": "string", "minLength": 1},
+    "trace_id": {"type": "string", "minLength": 1},
+    "occurred_at": {"type": "string"},
+    "source": {"enum": ["http", "mcp", "sdk", "agent_framework", "tool_wrapper", "message_integration"]},
+    "action_state": {"enum": ["proposed", "blocked", "approved", "executed"]},
+    "tenant": {"$ref": "https://agentguard.dev/schemas/tenancy/tenant_context.schema.json"},
+    "trajectory_id": {"type": ["string", "null"]},
+    "tool_id": {"type": "string", "minLength": 1},
+    "declared_capability_id": {"type": ["string", "null"]},
+    "resource_scope": {"type": ["string", "null"]},
+    "arguments": {"type": "object"},
+    "payload_ref": {"type": ["string", "null"]},
+    "payload_hash": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

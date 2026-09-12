@@ -28,3 +28,7 @@ AgentGuard_Audit_Report.pdf
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Local Claude Code / spec-kit tooling (not shared)
+.claude/
+.specify/

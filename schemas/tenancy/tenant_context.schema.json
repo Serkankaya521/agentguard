@@ -1,1 +1,22 @@
-
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentguard.dev/schemas/tenancy/tenant_context.schema.json",
+  "title": "TenantContext",
+  "description": "Validated tenancy/identity/environment context. Core Security never guesses these; every runtime decision consumes a validated instance.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["schema_version", "tenant_id", "workspace_id", "environment_id", "environment", "identity_id", "identity_type"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "tenant_id": {"type": "string", "minLength": 1},
+    "workspace_id": {"type": "string", "minLength": 1},
+    "environment_id": {"type": "string", "minLength": 1},
+    "environment": {"enum": ["production", "staging", "development", "test"]},
+    "identity_id": {"type": "string", "minLength": 1},
+    "identity_type": {"enum": ["user", "service", "agent"]},
+    "agent_id": {"type": ["string", "null"]},
+    "session_id": {"type": ["string", "null"]},
+    "roles": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}
