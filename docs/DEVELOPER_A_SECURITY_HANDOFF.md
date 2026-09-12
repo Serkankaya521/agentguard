@@ -80,3 +80,38 @@ Packaging note: imports use a deterministic path-priority order
 (`conftest.py`/`pyproject.toml`/`tests/test_runner.py`) to resolve flat-src
 module overlaps. A proper workspace packaging decision (namespaced imports,
 hyphenated app dirs, contracts/evidence `validation.py` overlap) is a shared item.
+
+## Sprint A7 — P2 closure + remaining Developer A features
+
+Closes the P2 gaps and the last Developer-A-owned placeholders.
+
+| Area | Where | Item |
+| --- | --- | --- |
+| Threat-research ingestion + knowledge promotion | `packages/aegis/src/threat_research.py` | #36, #37 |
+| Poisoning-resistant trust scoring | `threat_research.py` + `memory/semantic.py` | #38 |
+| Attack-template governance | `packages/aegis/src/attack_templates.py` | #39 |
+| Shadow/canary evaluation metrics | `packages/aegis/src/evaluation.py` | #40 |
+| Model/detector version registry | `packages/aegis/src/versioning.py` | #41 |
+| Adversarial corpus management | `packages/aegis/src/corpus.py` | #42 |
+| Multi-turn / chain exploration | `packages/aegis/src/chain_explorer.py` | #23 |
+| Risk budget (PDP input) | `packages/policy/src/risk_budget.py` | P0 #? risk budgets |
+| Behavioral anomaly detector | `packages/detectors/src/behavioral.py` | detector category |
+| Runtime evidence capture | `apps/runtime-gateway/src/evidence_capture.py` | evidence |
+| MCP source adapter | `apps/runtime-gateway/src/mcp/gateway.py` | runtime source |
+| Runtime security telemetry emitter | `apps/runtime-gateway/src/telemetry.py` | observability signals |
+| Gateway entry point (framework-agnostic) | `apps/runtime-gateway/src/main.py` | runtime gateway |
+| Security worker jobs | `apps/worker/src/jobs/{learning,regression,trajectory_recompute}.py` | security-owned jobs |
+
+**Developer A task-plan status: all 45 areas (P0 1–18, P1 19–34, P2 35–45) implemented and tested.**
+
+## Intentionally left to Developer B (not touched)
+
+- `packages/policy/src/publisher.py` — policy publication lifecycle
+- `apps/worker/src/jobs/reporting.py` — reporting
+- `apps/worker/src/queues/{backpressure,dlq,priority}.py` — broker/queue infra (producer-side bounded-buffer semantics already in `hot_path/event_publisher.py`)
+- `apps/worker/src/{config,main}.py` — worker deployment/scheduling entry
+- `apps/control-api/`, `apps/web-console/`, `packages/{auth,observability}/`, `infra/`, `migrations/`
+
+## Test/benchmark totals
+
+`python3 tests/test_runner.py` → **156 tests** pass. Both benchmark gates pass.

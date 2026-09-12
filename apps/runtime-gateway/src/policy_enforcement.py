@@ -14,6 +14,7 @@ production (Developer B / worker); behavioral detector; full recomputation worke
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from typing import Optional
 
 from config import RUNTIME_VERSION
@@ -60,6 +61,7 @@ class RuntimeGatewayPipeline:
         trajectory: Optional[TrajectoryStore] = None,
         risk: Optional[PrecomputedRiskStore] = None,
         publisher: Optional[AsyncEventPublisher] = None,
+        risk_budget=None,
         budget_us: int = latency_budget.GLOBAL_BUDGET_US,
     ) -> None:
         self._registry = registry or CapabilityRegistry()
@@ -71,6 +73,7 @@ class RuntimeGatewayPipeline:
         self._trajectory = trajectory or TrajectoryStore()
         self._risk = risk or PrecomputedRiskStore()
         self._publisher = publisher or AsyncEventPublisher()
+        self._risk_budget = risk_budget
         self._budget_us = budget_us
 
     @property
@@ -136,6 +139,13 @@ class RuntimeGatewayPipeline:
             resource_scope=event.resource_scope, dependency_ok=dependency_ok,
             detector_severity=det_severity, detector_reasons=det_reasons,
             chain_egress=chain_egress, precomputed_high=precomputed_high)
+        if self._risk_budget is not None:
+            over = self._risk_budget.record_and_check(
+                tenant_id=event.tenant.tenant_id, identity_id=event.tenant.identity_id,
+                risk=decision.risk_score)
+            if over and decision.decision == Decision.ALLOW:
+                decision = replace(decision, decision=Decision.REQUIRE_APPROVAL,
+                                   reason_codes=(ReasonCode.RISK_BUDGET_EXCEEDED,) + decision.reason_codes)
         outcome: EnforcementOutcome = self._pep.enforce(decision)
 
         runtime_decision = self._finalize(
