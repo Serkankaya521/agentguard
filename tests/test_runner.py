@@ -21,11 +21,17 @@ for p in PATHS:
 
 import test_contracts  # noqa: E402  (tests/contracts)
 import test_pipeline  # noqa: E402  (apps/runtime-gateway/tests)
+import test_compiled_policy  # noqa: E402  (tests/contracts)
+import test_cache  # noqa: E402  (apps/runtime-gateway/tests)
+import test_resilience  # noqa: E402  (apps/runtime-gateway/tests)
 
 loader = unittest.TestLoader()
 suite = unittest.TestSuite()
 suite.addTests(loader.loadTestsFromModule(test_contracts))
 suite.addTests(loader.loadTestsFromModule(test_pipeline))
+suite.addTests(loader.loadTestsFromModule(test_compiled_policy))
+suite.addTests(loader.loadTestsFromModule(test_cache))
+suite.addTests(loader.loadTestsFromModule(test_resilience))
 
 if __name__ == "__main__":
     result = unittest.TextTestRunner(verbosity=2).run(suite)
