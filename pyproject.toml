@@ -1,0 +1,18 @@
+# Repo-level tooling config (developer tooling only; not packaging/deployment).
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
+pythonpath = [
+    "apps/runtime-gateway/src",
+    "packages/policy/src",
+    "packages/detectors/src",
+    "packages/aegis/src",
+    "packages/attack-graph/src",
+    "packages/contracts/src",
+    "packages/evidence/src",
+    "packages/domain/src",
+    "packages/auth/src",
+    "packages/observability/src",
+    "apps/control-api/src",
+    "apps/worker/src",
+]
+testpaths = ["tests", "apps/runtime-gateway/tests", "apps/control-api/tests", "apps/worker/tests"]

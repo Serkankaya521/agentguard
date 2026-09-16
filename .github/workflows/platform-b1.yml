@@ -1,0 +1,50 @@
+name: Platform P0-P3 and MVP verification
+on: [push, pull_request]
+jobs:
+  tenant-foundation:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: b1_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      B1_TEST_OWNER_DSN: host=127.0.0.1 dbname=b1_test user=postgres
+      B1_TEST_APP_DSN: host=127.0.0.1 dbname=b1_test user=ag_control
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r apps/control-api/requirements-dev.txt
+      - run: pip install -r dashboard/requirements-local.txt
+      - name: Create restricted application role in disposable service
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          with psycopg.connect(os.environ['B1_TEST_OWNER_DSN']) as conn:
+              conn.execute('CREATE ROLE ag_control LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT')
+          PY
+      - run: python -m pytest -q
+      - run: python -m compileall -q apps packages dashboard core tests benchmarks migrations
+      - name: Validate deployment YAML
+        run: python -c "import pathlib,yaml; files=list(pathlib.Path('infra').rglob('*.y*ml'))+list(pathlib.Path('.github').rglob('*.y*ml')); [list(yaml.safe_load_all(p.read_text())) for p in files]; print(len(files))"
+  web-console:
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: apps/web-console}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '24', cache: npm, cache-dependency-path: apps/web-console/package-lock.json}
+      - run: npm ci --ignore-scripts
+      - run: npm audit --audit-level=high
+      - run: npm run typecheck
+      - run: npm run build

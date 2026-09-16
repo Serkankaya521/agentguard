@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: agentguard-control-api}
+spec:
+  replicas: 3
+  selector: {matchLabels: {app: agentguard-control-api}}
+  template:
+    metadata: {labels: {app: agentguard-control-api}}
+    spec:
+      containers:
+        - name: api
+          image: agentguard/control-api:3.1
+          args: [uvicorn, main:app, --host, 0.0.0.0, --port, "8080", --no-access-log, --limit-concurrency, "64"]
+          ports: [{containerPort: 8080}]
+          envFrom: [{secretRef: {name: agentguard-control-api}}]
+          resources:
+            requests: {cpu: 250m, memory: 256Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          readinessProbe: {httpGet: {path: /openapi.json, port: 8080}, periodSeconds: 5}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, runAsNonRoot: true, capabilities: {drop: [ALL]}}
+      topologySpreadConstraints:
+        - {maxSkew: 1, topologyKey: kubernetes.io/hostname, whenUnsatisfiable: DoNotSchedule, labelSelector: {matchLabels: {app: agentguard-control-api}}}

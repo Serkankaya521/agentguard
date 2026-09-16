@@ -1,0 +1,1 @@
+import {ResourcePage} from '@/components/resource-page';export default function Page(){return <ResourcePage title="Workspaces" path="v1/workspaces" description="Workspace boundaries drive authorization, assets, policies, approvals and reporting."/>}

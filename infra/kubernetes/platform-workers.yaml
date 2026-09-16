@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: agentguard-platform-critical-worker}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: agentguard-platform-worker, class: critical}}
+  template:
+    metadata: {labels: {app: agentguard-platform-worker, class: critical}}
+    spec:
+      priorityClassName: agentguard-critical
+      containers:
+        - name: worker
+          image: agentguard/platform-worker:3.1
+          envFrom: [{secretRef: {name: agentguard-platform-worker}}]
+          resources:
+            requests: {cpu: 500m, memory: 512Mi}
+            limits: {cpu: "2", memory: 1Gi}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, runAsNonRoot: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: agentguard-platform-background-worker}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: agentguard-platform-worker, class: background}}
+  template:
+    metadata: {labels: {app: agentguard-platform-worker, class: background}}
+    spec:
+      priorityClassName: agentguard-background
+      containers:
+        - name: worker
+          image: agentguard/platform-worker:3.1
+          envFrom: [{secretRef: {name: agentguard-platform-worker}}]
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, runAsNonRoot: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata: {name: agentguard-critical}
+value: 100000
+globalDefault: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: agentguard-security-worker}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: agentguard-security-worker}}
+  template:
+    metadata: {labels: {app: agentguard-security-worker}}
+    spec:
+      priorityClassName: agentguard-critical
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: worker
+          image: agentguard/platform-worker:3.1.0
+          command: [python, apps/worker/src/main.py]
+          env:
+            - {name: AGENTGUARD_WORKER_ROLE, value: security}
+          envFrom: [{secretRef: {name: agentguard-platform-worker}}]
+          resources:
+            requests: {cpu: 250m, memory: 384Mi}
+            limits: {cpu: "1", memory: 768Mi}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata: {name: agentguard-background}
+value: 1000
+globalDefault: false

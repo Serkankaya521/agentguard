@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentguard.dev/schemas/events/cache_invalidation_event.schema.json",
+  "title": "CacheInvalidationEvent",
+  "description": "Event-driven cache invalidation (master arch 30.5). Consumed by the runtime; produced by the platform.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["schema_version", "event_id", "sequence", "namespace", "keys", "issued_at"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "event_id": {"type": "string", "minLength": 1},
+    "sequence": {"type": "integer", "minimum": 0},
+    "namespace": {"type": "string", "minLength": 1},
+    "keys": {"type": "array", "items": {"type": "string"}},
+    "tenant_id": {"type": ["string", "null"]},
+    "issued_at": {"type": "string"}
+  },
+  "additionalProperties": true
+}

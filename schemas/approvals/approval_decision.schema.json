@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentguard.dev/schemas/approvals/approval_decision.schema.json",
+  "title": "ApprovalDecision",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["schema_version", "decision_id", "request_id", "tenant_id", "approver_identity_id", "decision", "decided_at"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "decision_id": {"type": "string", "minLength": 1},
+    "request_id": {"type": "string", "minLength": 1},
+    "tenant_id": {"type": "string", "minLength": 1},
+    "approver_identity_id": {"type": "string", "minLength": 1},
+    "decision": {"enum": ["APPROVE", "DENY", "REVOKE"]},
+    "reason": {"type": ["string", "null"], "maxLength": 1000},
+    "decided_at": {"type": "string", "format": "date-time"}
+  },
+  "additionalProperties": false
+}

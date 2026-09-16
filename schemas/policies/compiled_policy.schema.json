@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentguard.dev/schemas/policies/compiled_policy.schema.json",
+  "title": "CompiledPolicy",
+  "description": "Signed/hashed compiled artifact consumed by the runtime. Runtime never parses raw policy JSON per request; it evaluates this.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["schema_version", "policy_id", "policy_version", "policy_hash", "algorithm", "compiled_at", "compatibility", "ruleset"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "policy_id": {"type": "string", "minLength": 1},
+    "policy_version": {"type": "string", "minLength": 1},
+    "policy_hash": {"type": "string", "minLength": 1},
+    "signature": {"type": ["string", "null"]},
+    "algorithm": {"type": "string"},
+    "compiled_at": {"type": "string"},
+    "compatibility": {
+      "type": "object",
+      "required": ["min_runtime"],
+      "properties": {"min_runtime": {"type": "string"}}
+    },
+    "ruleset": {"$ref": "https://agentguard.dev/schemas/policies/policy.schema.json#/$defs/ruleset"}
+  },
+  "additionalProperties": true
+}

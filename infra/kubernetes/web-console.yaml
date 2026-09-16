@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: agentguard-web-console}
+spec:
+  replicas: 3
+  selector: {matchLabels: {app: agentguard-web-console}}
+  template:
+    metadata: {labels: {app: agentguard-web-console}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+      - name: web
+        image: agentguard/web-console:3.1.0
+        ports: [{name: http, containerPort: 3000}]
+        env:
+        - {name: CONTROL_API_URL, value: "http://agentguard-control-api:8080"}
+        - {name: WEB_CONSOLE_ORIGIN, valueFrom: {configMapKeyRef: {name: agentguard-platform, key: web-console-origin}}}
+        readinessProbe: {httpGet: {path: /health.txt, port: http}, initialDelaySeconds: 3}
+        livenessProbe: {httpGet: {path: /health.txt, port: http}, initialDelaySeconds: 10}
+        resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: "1", memory: 512Mi}}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: agentguard-web-console}
+spec: {selector: {app: agentguard-web-console}, ports: [{name: http, port: 3000, targetPort: http}]}

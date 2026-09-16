@@ -1,0 +1,17 @@
+FROM python:3.12.11-slim-bookworm
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app:/app/apps/worker/src:/app/apps/control-api/src:/app/packages/contracts/src:/app/packages/observability/src:/app/packages/aegis/src
+RUN groupadd --system agentguard && useradd --system --gid agentguard --uid 10001 agentguard
+WORKDIR /app
+COPY apps/control-api/requirements.lock.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+COPY apps/worker apps/worker
+COPY dashboard/campaign_engine.py dashboard/campaign_engine.py
+COPY core core
+COPY packages/aegis packages/aegis
+COPY apps/control-api/src/object_store.py apps/control-api/src/object_store.py
+COPY packages/contracts packages/contracts
+COPY packages/observability packages/observability
+COPY schemas schemas
+USER 10001:10001
+CMD ["python","apps/worker/src/platform_main.py"]

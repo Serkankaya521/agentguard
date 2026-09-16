@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentguard.dev/schemas/policies/policy_decision.schema.json",
+  "title": "PolicyDecision",
+  "description": "Output of the Policy Decision Point (PDP). Produced, not enforced, here.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["schema_version", "decision", "reason_codes", "risk_score", "fail_mode", "policy_version", "policy_hash"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "decision": {"enum": ["ALLOW", "BLOCK", "REQUIRE_APPROVAL", "SANDBOX", "REDACT", "STEP_UP_AUTH", "ASYNC_DEEP_ANALYSIS"]},
+    "reason_codes": {"type": "array", "items": {"type": "string"}},
+    "risk_score": {"type": "number", "minimum": 0, "maximum": 1},
+    "fail_mode": {"enum": ["fail_open", "fail_closed"]},
+    "policy_version": {"type": "string"},
+    "policy_hash": {"type": "string"},
+    "capability_id": {"type": ["string", "null"]}
+  },
+  "additionalProperties": true
+}

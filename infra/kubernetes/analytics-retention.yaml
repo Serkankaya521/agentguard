@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: agentguard-analytics-consumer}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: agentguard-analytics-consumer}}
+  template:
+    metadata: {labels: {app: agentguard-analytics-consumer}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+      - name: consumer
+        image: agentguard/platform-worker:3.1.0
+        command: [python, apps/worker/src/analytics_main.py]
+        envFrom: [{secretRef: {name: agentguard-platform-runtime}}]
+        resources: {requests: {cpu: 200m, memory: 256Mi}, limits: {cpu: "1", memory: 1Gi}}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata: {name: agentguard-report-retention}
+spec:
+  schedule: "17 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 1800
+      backoffLimit: 3
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext: {runAsNonRoot: true, runAsUser: 10001, seccompProfile: {type: RuntimeDefault}}
+          containers:
+          - name: retention
+            image: agentguard/platform-worker:3.1.0
+            command: [python, apps/worker/src/retention_main.py]
+            envFrom: [{secretRef: {name: agentguard-platform-runtime}}]
+            resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}}
+            securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}

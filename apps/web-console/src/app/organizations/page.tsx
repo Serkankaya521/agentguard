@@ -1,0 +1,1 @@
+import {ResourcePage} from '@/components/resource-page';export default function Page(){return <ResourcePage title="Organizations" path="v1/organizations" description="Authenticated tenant scope; organization identifiers never come from editable payload fields."/>}
