@@ -1,0 +1,22 @@
+name: Runtime security suite and latency release gate
+on: [push, pull_request]
+jobs:
+  runtime-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # The security core stays dependency-light: jsonschema is its only runtime dependency.
+      - run: pip install 'jsonschema>=4.10,<5'
+      - name: Security core suite (stdlib runner)
+        run: python tests/test_runner.py
+      # Runtime latency is a release gate (master architecture 30.2). A p50/p95/p99
+      # regression fails every attempt; `max` is a single sample that one GC or
+      # scheduler outlier on a shared runner can breach, so each gate gets one retry.
+      - name: Hot-path SLO gate
+        run: python benchmarks/hot_path_benchmark.py --gate || python benchmarks/hot_path_benchmark.py --gate
+      - name: Load/failure matrix SLO gate
+        run: python benchmarks/load_matrix.py --gate || python benchmarks/load_matrix.py --gate
