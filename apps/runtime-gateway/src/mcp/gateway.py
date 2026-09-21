@@ -1,27 +1,25 @@
 """MCP source adapter: normalize an MCP tool call into a SecurityEvent.
 
 The runtime gateway accepts MCP traffic as one of its sources (master arch 6).
-This maps an MCP tool-call message + validated tenant context into the raw shape
-the normalizer consumes.
+Shape-mapping now lives in the shared adapter layer (`adapters.mcp_adapter`), which
+handles both JSON-RPC `tools/call` and the flat `{tool, arguments}` shape; this
+class remains as the MCP entry point.
 """
 from __future__ import annotations
 
-from enums import EventSource
+from enums import EventSource, ReasonCode
 from normalization import NormalizationResult, normalize
+from adapters import mcp_adapter
 
 
 def mcp_to_raw(message: dict, tenant: dict) -> dict:
-    return {
-        "event_id": message.get("id"),
-        "trace_id": message.get("trace_id"),
-        "tool_id": message.get("tool") or message.get("name", ""),
-        "declared_capability_id": message.get("capability"),
-        "resource_scope": message.get("resource"),
-        "arguments": message.get("arguments") or message.get("params") or {},
-        "tenant": tenant,
-    }
+    """Back-compat helper: raw dict for the flat MCP shape (may be None-valued)."""
+    return mcp_adapter(message, tenant) or {"tenant": tenant, "tool_id": ""}
 
 
 class McpGateway:
     def handle(self, message: dict, tenant: dict) -> NormalizationResult:
-        return normalize(mcp_to_raw(message, tenant), EventSource.MCP)
+        raw = mcp_adapter(message, tenant)
+        if raw is None:
+            return NormalizationResult(None, [ReasonCode.NORMALIZATION_MALFORMED_INPUT])
+        return normalize(raw, EventSource.MCP)
