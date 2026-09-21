@@ -22,12 +22,12 @@ import test_evidence, test_aegis, test_attack_graph, test_a4_worker  # noqa: E40
 import test_a5_redteam, test_a5_regression  # noqa: E402
 import test_a6_twin, test_a6_governance, test_a6_integration  # noqa: E402
 import test_a7, test_a7_finish  # noqa: E402
-import test_live_target  # noqa: E402
+import test_live_target, test_approval_revocation  # noqa: E402
 _MODULES += [test_evidence, test_aegis, test_attack_graph, test_a4_worker]
 _MODULES += [test_a5_redteam, test_a5_regression]
 _MODULES += [test_a6_twin, test_a6_governance, test_a6_integration]
 _MODULES += [test_a7, test_a7_finish]
-_MODULES += [test_live_target]
+_MODULES += [test_live_target, test_approval_revocation]
 
 loader = unittest.TestLoader()
 suite = unittest.TestSuite()

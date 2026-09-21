@@ -66,6 +66,33 @@ spec:
             limits: {cpu: "1", memory: 768Mi}
           securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
 ---
+# Applies approval.revoked events to the shared Redis replay guard so revocations
+# take effect at the runtime ExecutionGate across all instances. Critical priority:
+# a revocation that lags weakens enforcement.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: agentguard-approval-revoke-worker}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: agentguard-approval-revoke-worker}}
+  template:
+    metadata: {labels: {app: agentguard-approval-revoke-worker}}
+    spec:
+      priorityClassName: agentguard-critical
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: worker
+          image: agentguard/platform-worker:3.1.0
+          command: [python, apps/worker/src/main.py]
+          env:
+            - {name: AGENTGUARD_WORKER_ROLE, value: revoke}
+          envFrom: [{secretRef: {name: agentguard-platform-worker}}]
+          resources:
+            requests: {cpu: 100m, memory: 192Mi}
+            limits: {cpu: 500m, memory: 384Mi}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata: {name: agentguard-background}

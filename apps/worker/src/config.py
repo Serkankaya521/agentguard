@@ -8,5 +8,5 @@ class WorkerSettings:
     @classmethod
     def from_env(cls):
         role=os.environ.get('AGENTGUARD_WORKER_ROLE','platform')
-        if role not in ('platform','analytics','retention','scheduler','security'):raise RuntimeError('invalid AGENTGUARD_WORKER_ROLE')
+        if role not in ('platform','analytics','retention','scheduler','security','revoke'):raise RuntimeError('invalid AGENTGUARD_WORKER_ROLE')
         return cls(role)
