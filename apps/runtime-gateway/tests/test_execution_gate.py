@@ -143,6 +143,33 @@ class TestExecutionGate(unittest.TestCase):
         self.assertIn(ReasonCode.EXEC_APPROVAL_REPLAY,
             second.authorize(signed("scope-replay"),event(event_id="scope-replay",resource_scope="invoice/1"),token).reason_codes)
 
+    def test_replay_guard_failures_fail_closed_without_raising(self):
+        class Guard:
+            error = None
+            def consume(self, tenant_id, nonce, ttl_s):
+                if self.error: raise self.error
+                return True
+        token = mint_approval_token(KEY, token_id="t", tenant_id="A", tool_id="pay",
+                                    capability_id="payment.execute", expires_at=200, nonce="n-1")
+        def attempt(gate, event_id):
+            sd = DecisionSigner(KEY).sign(decision(dec=Decision.REQUIRE_APPROVAL, event_id=event_id,
+                                                   capability_id="payment.execute"), ttl_s=1e9, now=100)
+            return gate.authorize(sd, event(event_id=event_id), token)
+        guard = Guard()
+        gate = ExecutionGate(KEY, clock=lambda: 100, replay_guard=guard)
+        guard.error = ConnectionError("redis down")
+        out = attempt(gate, "g1")
+        self.assertFalse(out.permitted)
+        self.assertEqual(out.action_state, ActionState.BLOCKED)
+        self.assertIn(ReasonCode.FAIL_CLOSED_DEPENDENCY, out.reason_codes)
+        guard.error = ValueError("invalid approval nonce")
+        self.assertIn(ReasonCode.EXEC_APPROVAL_INVALID, attempt(gate, "g2").reason_codes)
+        # A failed guard call must not burn the nonce locally: once the guard recovers,
+        # the same single-use token is still honoured exactly once.
+        guard.error = None
+        self.assertTrue(attempt(gate, "g3").permitted)
+        self.assertIn(ReasonCode.EXEC_APPROVAL_REPLAY, attempt(gate, "g4").reason_codes)
+
 
 if __name__ == "__main__":
     unittest.main()
