@@ -25,6 +25,7 @@ from cache import TieredCache, make_key
 from hot_path import latency_budget
 from hot_path.circuit_breaker import CircuitBreaker
 from hot_path.event_publisher import AsyncEventPublisher
+from hot_path.analytics_publisher import AnalyticsEventPublisher
 from policy.artifact_loader import ActivePolicyProvider
 from risk.precomputed import PrecomputedRiskStore
 from trajectory.incremental_state import TrajectoryStore
@@ -61,6 +62,7 @@ class RuntimeGatewayPipeline:
         trajectory: Optional[TrajectoryStore] = None,
         risk: Optional[PrecomputedRiskStore] = None,
         publisher: Optional[AsyncEventPublisher] = None,
+        analytics_publisher: Optional[AnalyticsEventPublisher] = None,
         risk_budget=None,
         budget_us: int = latency_budget.GLOBAL_BUDGET_US,
     ) -> None:
@@ -73,12 +75,17 @@ class RuntimeGatewayPipeline:
         self._trajectory = trajectory or TrajectoryStore()
         self._risk = risk or PrecomputedRiskStore()
         self._publisher = publisher or AsyncEventPublisher()
+        self._analytics_publisher = analytics_publisher or AnalyticsEventPublisher()
         self._risk_budget = risk_budget
         self._budget_us = budget_us
 
     @property
     def publisher(self) -> AsyncEventPublisher:
         return self._publisher
+
+    @property
+    def analytics_publisher(self) -> AnalyticsEventPublisher:
+        return self._analytics_publisher
 
     def process(self, raw: object, source: object) -> RuntimeDecision:
         deadline = latency_budget.start(self._budget_us)
@@ -152,8 +159,10 @@ class RuntimeGatewayPipeline:
             deadline, event.tenant.tenant_id, event.event_id, event.trace_id,
             decision, outcome.action_state, _worst(policy_src, cap_src), trajectory_version)
 
-        # Async learning/telemetry event (off the hot path, non-blocking).
+        # Async learning + analytics events (off the hot path, after latency is
+        # recorded, non-blocking). A forwarder drains analytics to security.events.
         self._publisher.publish_decision(event, runtime_decision)
+        self._analytics_publisher.publish_event(event, runtime_decision)
         return runtime_decision
 
     # --- helpers -----------------------------------------------------------
