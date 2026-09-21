@@ -54,6 +54,8 @@ class CampaignSummary:
     findings: int
     best_score: float
     candidates: tuple[FuzzedCandidate, ...]
+    # Set by the security worker's RoE guard (RedTeamReason value) when it halted early.
+    halt_reason: str | None = None
 
     def capture_result(self):
         observations = tuple({
@@ -68,8 +70,10 @@ class CampaignSummary:
         } for index, candidate in enumerate(self.candidates))
         return SimpleNamespace(
             campaign_id=self.campaign_id, target=self.target,
-            executed=self.candidates_evaluated, refused=0, killed=False,
-            budget_exhausted=False, unauthorized=False,
+            executed=self.candidates_evaluated, refused=0,
+            killed=self.halt_reason == "KILL_SWITCH_TRIPPED",
+            budget_exhausted=self.halt_reason == "SAFETY_BUDGET_EXHAUSTED",
+            unauthorized=(self.halt_reason or "").startswith("ROE_"),
             observations=observations,
         )
 
@@ -151,11 +155,14 @@ class OpenAICompatibleAdapter:
 
 
 async def run_campaign(config: CampaignConfig, *, api_key: str | None = None,
-                       hardened_demo: bool = False) -> CampaignSummary:
+                       hardened_demo: bool = False,
+                       wrap_evaluator=None) -> CampaignSummary:
     """Run a bounded response-aware evolutionary campaign.
 
     A mock model is useful for an offline smoke test. Any other model name uses
     an OpenAI-compatible endpoint and therefore requires explicit credentials.
+    ``wrap_evaluator`` lets the security worker put its RoE/kill-switch/budget
+    guard in front of every target request.
     """
     if config.model_name.startswith("mock-"):
         evaluator = demo_evaluator(hardened=hardened_demo)
@@ -172,6 +179,8 @@ async def run_campaign(config: CampaignConfig, *, api_key: str | None = None,
             delay_s=config.request_delay_s,
         ).execute_prompt
 
+    if wrap_evaluator is not None:
+        evaluator = wrap_evaluator(evaluator)
     fuzzer = GeneticSemanticFuzzer(
         population_size=config.population_size,
         max_generations=config.generations,
