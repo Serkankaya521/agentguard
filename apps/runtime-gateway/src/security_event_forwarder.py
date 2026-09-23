@@ -19,6 +19,19 @@ import time
 ANALYTICS_TOPIC = "security.events"
 
 
+class KafkaProducerAdapter:
+    def __init__(self, bootstrap_servers: str):
+        from kafka import KafkaProducer
+        self._producer=KafkaProducer(bootstrap_servers=bootstrap_servers.split(','),
+            acks='all',enable_idempotence=True,request_timeout_ms=3000,max_block_ms=3000)
+
+    def publish(self, topic, *, key, value, headers):
+        self._producer.send(topic,key=key,value=value,headers=headers).get(timeout=3)
+
+    def close(self):
+        self._producer.flush(timeout=3);self._producer.close(timeout=3)
+
+
 def _encode(record: dict) -> tuple[bytes, bytes, list]:
     tenant_id = str(record["tenant_id"])
     body = record["event"]

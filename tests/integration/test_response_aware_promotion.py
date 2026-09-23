@@ -4,6 +4,7 @@ import asyncio
 
 from corpus_promotion import CorpusPromotionPolicy, campaign_candidates
 from dashboard.campaign_engine import CampaignConfig, run_campaign
+from security_main import build_deep_analysis
 
 
 def config():
@@ -45,3 +46,14 @@ def test_target_canary_finding_is_promoted_and_indexed():
         {"root_cause": "canary", "successful_mutations": ["roleplay", "encode"],
          "tool_capability": "mcp.invoke", "evidence_pattern": "sha256:other"}, threshold=0.4)
     assert matches and matches[0][1] >= 0.4
+
+
+def test_security_worker_builds_promotion_enabled_deep_analysis():
+    result=build_deep_analysis().analyze_finding({
+        "tenant_id":"tenant-a","root_cause":"canary disclosure",
+        "regression_fingerprint":"sha256:deadbeef","evidence_level":"target_canary",
+        "evidence_backed":True,"evidence_pattern":"sha256:resp",
+        "successful_mutations":["roleplay"],"tool_capability":"mcp.invoke",
+    })
+    assert result["promoted"] is True
+    assert result["dna_fingerprint"]

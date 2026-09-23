@@ -4,6 +4,7 @@ import signal
 import time
 
 from queues.repository import JobRepository
+from tenant_ids import active_tenant_ids
 
 
 HANDLERS = {}
@@ -16,10 +17,8 @@ def register(job_type, handler):
 
 
 def main(*,include_defaults=True):
-    tenants = tuple(filter(None,os.environ.get('PLATFORM_TENANT_IDS','').split(',')))
-    if not tenants:
-        raise RuntimeError('PLATFORM_TENANT_IDS is required')
-    repo = JobRepository(os.environ['CONTROL_DATABASE_URL'],max_batch=16)
+    dsn=os.environ['CONTROL_DATABASE_URL']
+    repo = JobRepository(dsn,max_batch=16)
     if include_defaults and 'report.generate' not in HANDLERS:
         from jobs.reporting import ReportGenerator
         from object_store import S3ObjectStore
@@ -38,6 +37,7 @@ def main(*,include_defaults=True):
         running = False
     signal.signal(signal.SIGTERM,stop)
     while running:
+        tenants=active_tenant_ids(dsn)
         claimed = 0
         for tenant in tenants:
             for job in repo.claim(tenant,job_types=tuple(HANDLERS)):

@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: agentguard-runtime-gateway}
+spec:
+  replicas: 3
+  selector: {matchLabels: {app: agentguard-runtime-gateway}}
+  template:
+    metadata: {labels: {app: agentguard-runtime-gateway}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: gateway
+          image: agentguard/runtime-gateway:3.1.0
+          ports: [{name: http, containerPort: 8081}]
+          envFrom: [{secretRef: {name: agentguard-runtime-gateway}}]
+          resources:
+            requests: {cpu: 500m, memory: 384Mi}
+            limits: {cpu: "2", memory: 768Mi}
+          readinessProbe: {httpGet: {path: /health/live, port: http}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /health/live, port: http}, initialDelaySeconds: 10}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: agentguard-runtime-gateway}
+spec:
+  selector: {app: agentguard-runtime-gateway}
+  ports: [{name: http, port: 8081, targetPort: http}]

@@ -12,6 +12,7 @@ env/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.local/
 .mypy_cache/
 .ruff_cache/
 .coverage
@@ -25,6 +26,8 @@ node_modules/
 
 # Generated artifacts and local state
 *.log
+tests/test_report.json
+tests/fuzzer_bypasses.json
 AgentGuard_Audit_Report.pdf
 .streamlit/secrets.toml
 .idea/

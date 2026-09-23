@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib.util
 import os
+import secrets
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -54,7 +55,8 @@ def platform():
     with TestClient(create_app(app_dsn, policy_signing_key="policy-test-key",
                                approval_signing_key="approval-test-key",
                                evidence_signing_key="evidence-test-key",
-                               object_store=store)) as client:
+                               object_store=store,
+                               campaign_secret_allowlist={str(tenant):{'TARGET_API_KEY','TARGET_CANARY'}})) as client:
         assert client.put(f"/v1/organizations/{tenant}", json={"name":"P0 tenant"}, headers=headers).status_code == 200
         assert client.put(f"/v1/identities/{bootstrap_id}", json={
             "identity_type":"service", "display_name":"bootstrap", "attributes":{}
@@ -81,12 +83,11 @@ def create_actor(platform, role):
         "identity_id":str(identity), "workspace_id":str(workspace), "role":role,
         "attributes":{},
     }, headers=headers).status_code == 200
-    response = client.post(f"/v1/identities/{identity}/credentials", json={
-        "label":role, "expires_at":(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat()
-    }, headers=headers)
-    assert response.status_code == 201
-    assert response.headers["Cache-Control"] == "no-store"
-    return identity, {"Authorization":"Bearer "+response.json()["token"]}, response.json()["credential_id"]
+    token=secrets.token_urlsafe(48);credential_id=uuid4()
+    with psycopg.connect(owner_dsn) as conn:
+        conn.execute("INSERT INTO platform.credentials(token_hash,tenant_id,identity_id,role,expires_at,label,credential_id) VALUES(%s,%s,%s,'reader',now()+interval '1 hour',%s,%s)",
+                     (hashlib.sha256(token.encode()).hexdigest(),tenant,identity,role,credential_id))
+    return identity, {"Authorization":"Bearer "+token}, str(credential_id)
 
 
 def test_p1_limits_integrations_reports_and_secret_boundary(platform):
@@ -266,7 +267,9 @@ def test_findings_evidence_and_policy_publication(platform):
     assert created.status_code == 200
     assert client.post(f"/v1/findings/{finding}/transitions",json={"state":"CONFIRMED"},headers={**headers,"If-Match":"1"}).status_code == 409
     assert client.post(f"/v1/findings/{finding}/transitions",json={"state":"VALIDATING"},headers={**headers,"If-Match":"1"}).status_code == 200
-    store.seed(tenant,f"{tenant}/events/event-1.json",ObjectMetadata(10,"a"*64,"application/json"))
+    evidence_content=b'0123456789'; evidence_digest=hashlib.sha256(evidence_content).hexdigest()
+    store.put(tenant,f"{tenant}/events/event-1.json",evidence_content,
+              sha256=evidence_digest,media_type="application/json")
     upload = client.post('/v1/evidence/uploads',json={"object_key":f"{tenant}/events/new.json",
         "media_type":"application/json","sha256":"b"*64},headers=headers)
     assert upload.status_code == 201 and upload.headers['Cache-Control'] == 'no-store'
@@ -275,7 +278,7 @@ def test_findings_evidence_and_policy_publication(platform):
     evidence = client.post("/v1/evidence",json={
         "workspace_id":str(workspace),"environment_id":str(environment),"event_id":"event-1",
         "action_state":"blocked","object_key":f"{tenant}/events/event-1.json",
-        "media_type":"application/json","size_bytes":10,"object_hash":"sha256:"+"a"*64,
+        "media_type":"application/json","size_bytes":10,"object_hash":"sha256:"+evidence_digest,
         "sources":[{"kind":"policy_trace","ref":"object://event-1"}],
     },headers=headers)
     assert evidence.status_code == 201
@@ -307,6 +310,8 @@ def test_campaign_schedule_recovery_and_canary_to_regression(platform):
           'status':'active','next_run_at':now.isoformat()}
     created=client.put(f'/v1/campaigns/{campaign_id}',json=body,headers=headers)
     assert created.status_code==200 and created.json()['secret_configured'] and 'secret_ref' not in created.json()
+    assert client.put(f'/v1/campaigns/{uuid4()}',json={**body,'target_config':{'api_base':'http://localhost.attacker.example/v1','model':'agent'}},headers=headers).status_code==422
+    assert client.put(f'/v1/campaigns/{uuid4()}',json={**body,'secret_ref':'env://CONTROL_DATABASE_URL'},headers=headers).status_code==403
     assert client.put(f'/v1/campaigns/{uuid4()}',json={**body,'name':'leak','target_config':{'api_base':'https://agent.test/v1','api_key':'plaintext'}},headers=headers).status_code==422
     paused=client.post(f'/v1/campaigns/{campaign_id}/status',json={'status':'paused'},headers={**headers,'If-Match':'1'})
     assert paused.status_code==200 and paused.json()['status']=='paused'
@@ -349,7 +354,7 @@ def test_new_tables_remain_cross_tenant_and_audit_chain_is_complete(platform):
     other = uuid4()
     with psycopg.connect(app_dsn) as conn:
         conn.execute("SELECT set_config('app.tenant_id',%s,true)",(str(other),))
-        for table in ("identities","memberships","assets","tool_capabilities","approval_requests","findings","policies","evidence_objects","outbox","campaigns","campaign_runs","campaign_candidates","regression_cases"):
+        for table in ("credentials","identities","memberships","assets","tool_capabilities","approval_requests","findings","policies","evidence_objects","outbox","campaigns","campaign_runs","campaign_candidates","regression_cases"):
             assert conn.execute(f"SELECT count(*) FROM platform.{table}").fetchone()[0] == 0
     with psycopg.connect(owner_dsn) as conn:
         rows = conn.execute("SELECT prev_hash,record_hash FROM platform.audit WHERE tenant_id=%s ORDER BY id",(tenant,)).fetchall()

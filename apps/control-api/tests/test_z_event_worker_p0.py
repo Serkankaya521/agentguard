@@ -89,6 +89,13 @@ def test_job_priority_lease_retry_and_poison_isolation(event_db):
     assert [job['priority'] for job in jobs] == ['P2','P5']
     repo.complete(tenant,jobs[0]['id'])
     repo.fail(tenant,jobs[1]['id'],RuntimeError('customer data omitted'))
+    abandoned=uuid4()
+    with psycopg.connect(owner) as conn:
+        conn.execute("INSERT INTO platform.jobs(tenant_id,id,workspace_id,environment_id,job_type,priority,payload,status,attempt,max_attempts,lease_until,idempotency_key) VALUES(%s,%s,%s,%s,'report','P3','{}','running',1,3,now()-interval '1 second',%s)",
+                     (tenant,abandoned,workspace,environment,str(abandoned)))
+    reclaimed=repo.claim(tenant)
+    assert [job['id'] for job in reclaimed]==[abandoned]
+    assert reclaimed[0]['attempt']==2
     with psycopg.connect(owner) as conn:
         states = conn.execute("SELECT status,last_error_code FROM platform.jobs WHERE tenant_id=%s ORDER BY priority",(tenant,)).fetchall()
         assert ('completed',None) in states and ('retry','RuntimeError') in states

@@ -6,15 +6,15 @@ ROLE_PERMISSIONS = {
     "admin": frozenset({
         "tenant.read", "tenant.write", "identity.manage", "asset.manage",
         "capability.manage", "policy.manage", "approval.request",
-        "approval.decide", "finding.manage", "evidence.read", "audit.read",
-        "operations.read", "operations.manage", "integration.read",
+        "approval.decide", "finding.manage", "evidence.read", "evidence.write", "audit.read",
+        "operations.read", "integration.read",
         "integration.manage", "report.read", "report.manage",
         "analytics.read",
         "billing.read", "schedule.manage", "sso.manage", "campaign.manage",
     }),
     "editor": frozenset({
         "tenant.read", "asset.manage", "capability.manage", "policy.manage",
-        "approval.request", "finding.manage", "evidence.read",
+        "approval.request", "finding.manage", "evidence.read", "evidence.write",
         "operations.read", "integration.read", "integration.manage",
         "report.read", "report.manage",
         "analytics.read",

@@ -1,5 +1,6 @@
 """B1 Control API. Tenancy administration only; no runtime security decisions."""
 import hashlib
+import json
 import logging
 import os
 import time
@@ -67,7 +68,8 @@ class BodyLimit:
 
 
 def create_app(dsn=None, *, policy_signing_key=None, approval_signing_key=None,
-               evidence_signing_key=None, object_store=None, analytics_client=None):
+               evidence_signing_key=None, object_store=None, analytics_client=None,
+               campaign_secret_allowlist=None):
     database_url = dsn or os.environ['CONTROL_DATABASE_URL']
     from database import Database
     platform_database = Database(database_url)
@@ -102,9 +104,9 @@ def create_app(dsn=None, *, policy_signing_key=None, approval_signing_key=None,
     def ready():
         with platform_database.connect() as conn:
             versions = conn.execute('SELECT version FROM public.platform_migrations ORDER BY version').fetchall()
-            if [row['version'] for row in versions] != [1,2,3,4,5,6]:
+            if [row['version'] for row in versions] != [1,2,3,4,5,6,7]:
                 raise HTTPException(503,'MIGRATION_REQUIRED')
-        return {'status':'ready','migration':6}
+        return {'status':'ready','migration':7}
 
     @app.middleware('http')
     async def metadata(request: Request, call_next):
@@ -247,6 +249,12 @@ def create_app(dsn=None, *, policy_signing_key=None, approval_signing_key=None,
     from p2_enterprise import install_p2_routes
     install_p2_routes(app, platform_database)
     from campaigns import install_campaign_routes
-    install_campaign_routes(app, platform_database)
+    if campaign_secret_allowlist is None:
+        raw=os.environ.get('CAMPAIGN_SECRET_ALLOWLIST_JSON','{}')
+        try:
+            campaign_secret_allowlist={str(k):set(v) for k,v in json.loads(raw).items()}
+        except (TypeError,ValueError):
+            raise RuntimeError('invalid CAMPAIGN_SECRET_ALLOWLIST_JSON')
+    install_campaign_routes(app, platform_database, campaign_secret_allowlist)
     app.add_middleware(BodyLimit)
     return app

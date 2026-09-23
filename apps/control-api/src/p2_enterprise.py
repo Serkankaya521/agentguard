@@ -90,12 +90,14 @@ def install_p2_routes(app,database:Database):
             identity_id=uuid5(UUID(principal.tenant_id),subject)
             conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',(principal.tenant_id+':'+subject,))
             existing=conn.execute('SELECT * FROM platform.identities WHERE external_subject=%s FOR UPDATE',(subject,)).fetchone()
-            attributes=psycopg.types.json.Jsonb({'user_name':user.user_name,'provisioned_by':'scim'})
+            incoming={'user_name':user.user_name,'provisioned_by':'scim'}
             if existing:
+                attributes=psycopg.types.json.Jsonb({**dict(existing['attributes']),**incoming})
                 row=conn.execute('UPDATE platform.identities SET display_name=%s,status=%s,attributes=%s,version=version+1 WHERE id=%s RETURNING *',
                     (user.display_name,'active' if user.active else 'suspended',attributes,existing['id'])).fetchone()
                 status_code=200
             else:
+                attributes=psycopg.types.json.Jsonb(incoming)
                 row=conn.execute('INSERT INTO platform.identities(tenant_id,id,identity_type,external_subject,display_name,status,attributes) VALUES(%s,%s,\'user\',%s,%s,%s,%s) RETURNING *',
                     (principal.tenant_id,identity_id,subject,user.display_name,'active' if user.active else 'suspended',attributes)).fetchone()
                 status_code=201
@@ -119,6 +121,6 @@ def install_p2_routes(app,database:Database):
             database.authorize(principal,'identity.manage')
             row=conn.execute("UPDATE platform.identities SET status='suspended',version=version+1 WHERE id=%s AND external_subject LIKE 'scim:%%' RETURNING id",(identity_id,)).fetchone()
             if not row:raise HTTPException(404,'NOT_FOUND')
-            conn.execute('UPDATE platform.credentials SET revoked=true WHERE identity_id=%s',(identity_id,))
+            conn.execute('UPDATE platform.credentials SET revoked=true WHERE tenant_id=%s AND identity_id=%s',(principal.tenant_id,identity_id))
             audit(conn,principal,request.state.correlation_id,'scim.user.deactivate',identity_id)
             return Response(status_code=204)
