@@ -7,6 +7,7 @@ def main():
     elif role=='analytics':from analytics_main import main as run
     elif role=='retention':from retention_main import main as run
     elif role=='scheduler':from schedule_main import main as run
+    elif role=='revoke':from revoke_main import main as run
     else:from security_main import main as run
     run()
 if __name__=='__main__':main()

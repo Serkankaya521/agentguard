@@ -1,7 +1,7 @@
 """Contract tests: schemas are the source of truth for cross-component payloads."""
 import unittest
 
-from validation import validate, is_valid, schema_version, load_schema
+from validation import CONTRACTS, bundle, validate, is_valid, schema_version, load_schema
 from serialization import canonical_json, content_hash, redact, to_jsonable
 
 
@@ -80,6 +80,41 @@ class TestSecurityEventContract(unittest.TestCase):
             "tool_id": "safe_echo", "payload_hash": "sha256:abc",
         }
         self.assertFalse(is_valid(evt, "security_event"))
+
+
+class TestSchemaBundling(unittest.TestCase):
+    """Validators run on inlined schemas: no $ref resolution per request."""
+
+    @staticmethod
+    def _refs(node):
+        if isinstance(node, dict):
+            own = [node["$ref"]] if "$ref" in node else []
+            return own + [r for v in node.values() for r in TestSchemaBundling._refs(v)]
+        if isinstance(node, list):
+            return [r for v in node for r in TestSchemaBundling._refs(v)]
+        return []
+
+    def test_every_contract_bundles_without_refs(self):
+        for name in CONTRACTS:
+            self.assertEqual(self._refs(bundle(load_schema(name))), [], name)
+
+    def test_cross_contract_and_local_refs_still_enforced(self):
+        # compiled_policy -> policy#/$defs/ruleset -> #/$defs/decision (local to policy)
+        ruleset = bundle(load_schema("compiled_policy"))["properties"]["ruleset"]
+        self.assertNotIn("$id", ruleset)
+        self.assertIn("properties", ruleset)
+
+    def test_ref_siblings_are_kept(self):
+        schema = {"$id": "urn:t", "$defs": {"s": {"type": "string"}},
+                  "properties": {"x": {"$ref": "#/$defs/s", "maxLength": 2}}}
+        x = bundle(schema)["properties"]["x"]
+        self.assertEqual(x, {"allOf": [{"type": "string"}, {"maxLength": 2}]})
+
+    def test_recursive_ref_is_rejected(self):
+        schema = {"$id": "urn:t", "$defs": {"n": {"properties": {"next": {"$ref": "#/$defs/n"}}}},
+                  "$ref": "#/$defs/n"}
+        with self.assertRaises(ValueError):
+            bundle(schema)
 
 
 class TestSerialization(unittest.TestCase):

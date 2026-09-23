@@ -205,7 +205,15 @@ class ExecutionGate:
             return self._deny(ReasonCode.EXEC_APPROVAL_REPLAY)
         if self._replay_guard is not None:
             ttl_s = max(1, int(token.expires_at - now))
-            if not self._replay_guard.consume(token.tenant_id,token.nonce,ttl_s=ttl_s):
+            # The shared guard is an external dependency: any failure must end in a
+            # deterministic deny (fail closed), never an exception out of the PEP.
+            try:
+                consumed = self._replay_guard.consume(token.tenant_id, token.nonce, ttl_s=ttl_s)
+            except ValueError:  # nonce/ttl outside what the guard can record safely
+                return self._deny(ReasonCode.EXEC_APPROVAL_INVALID)
+            except Exception:  # guard backend unreachable or timed out
+                return self._deny(ReasonCode.FAIL_CLOSED_DEPENDENCY)
+            if not consumed:
                 return self._deny(ReasonCode.EXEC_APPROVAL_REPLAY)
         self._mark_nonce(token.nonce)
         return ExecutionOutcome(True, ActionState.APPROVED,

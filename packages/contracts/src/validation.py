@@ -10,9 +10,9 @@ import functools
 import json
 import pathlib
 from typing import Optional
+from urllib.parse import unquote, urldefrag, urljoin
 
 from jsonschema import Draft202012Validator
-from referencing import Registry, Resource
 
 # repo_root/packages/contracts/src/validation.py -> parents[3] == repo root
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
@@ -59,15 +59,55 @@ def schema_version(name: str) -> Optional[str]:
 
 
 @functools.lru_cache(maxsize=None)
+def _schemas_by_id() -> dict[str, dict]:
+    return {s["$id"]: s for s in map(load_schema, CONTRACTS) if "$id" in s}
+
+
+def _pointer(doc, fragment: str):
+    node = doc
+    for part in unquote(fragment).lstrip("/").split("/") if fragment else ():
+        part = part.replace("~1", "/").replace("~0", "~")
+        node = node[int(part)] if isinstance(node, list) else node[part]
+    return node
+
+
+def bundle(schema: dict) -> dict:
+    """Return a copy of `schema` with every $ref (local or cross-contract) inlined.
+
+    security_event is validated on the runtime hot path. Resolving $ref through a
+    resolver/registry on every call costs ~30us per request, and the registry API
+    needs jsonschema>=4.18. Inlining once at load time leaves only plain keyword
+    checks per call and works on any jsonschema 4.x.
+    """
+    by_id = _schemas_by_id()
+
+    def resolve(node, base: str, doc: dict, seen: frozenset):
+        if isinstance(node, list):
+            return [resolve(v, base, doc, seen) for v in node]
+        if not isinstance(node, dict):
+            return node
+        if "$ref" not in node:
+            return {k: resolve(v, base, doc, seen) for k, v in node.items()}
+        uri, fragment = urldefrag(urljoin(base, node["$ref"]))
+        uri = uri or base  # a bare "#/..." ref points into the current document
+        target_doc = doc if uri == base else by_id.get(uri)
+        if target_doc is None:
+            raise UnknownContract(node["$ref"])
+        if (uri, fragment) in seen:
+            raise ValueError(f"recursive $ref cannot be inlined: {node['$ref']}")
+        inlined = resolve(_pointer(target_doc, fragment), uri, target_doc,
+                          seen | {(uri, fragment)})
+        if isinstance(inlined, dict):
+            inlined = {k: v for k, v in inlined.items() if k not in ("$id", "$schema")}
+        siblings = {k: resolve(v, base, doc, seen) for k, v in node.items() if k != "$ref"}
+        return {"allOf": [inlined, siblings]} if siblings else inlined
+
+    return resolve(schema, schema.get("$id", ""), schema, frozenset())
+
+
+@functools.lru_cache(maxsize=None)
 def _validator(name: str) -> Draft202012Validator:
-    schema = load_schema(name)
-    # Resolve cross-schema $ref (e.g. security_event -> tenant_context) from disk.
-    registry = Registry()
-    for logical in CONTRACTS:
-        s = load_schema(logical)
-        if "$id" in s:
-            registry = registry.with_resource(s["$id"], Resource.from_contents(s))
-    return Draft202012Validator(schema, registry=registry)
+    return Draft202012Validator(bundle(load_schema(name)))
 
 
 def validate(payload: dict, name: str) -> list[str]:
