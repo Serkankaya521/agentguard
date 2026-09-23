@@ -69,7 +69,7 @@ class BodyLimit:
 
 def create_app(dsn=None, *, policy_signing_key=None, approval_signing_key=None,
                evidence_signing_key=None, object_store=None, analytics_client=None,
-               campaign_secret_allowlist=None):
+               campaign_secret_allowlist=None,campaign_target_allowlist=None):
     database_url = dsn or os.environ['CONTROL_DATABASE_URL']
     from database import Database
     platform_database = Database(database_url)
@@ -255,6 +255,13 @@ def create_app(dsn=None, *, policy_signing_key=None, approval_signing_key=None,
             campaign_secret_allowlist={str(k):set(v) for k,v in json.loads(raw).items()}
         except (TypeError,ValueError):
             raise RuntimeError('invalid CAMPAIGN_SECRET_ALLOWLIST_JSON')
-    install_campaign_routes(app, platform_database, campaign_secret_allowlist)
+    if campaign_target_allowlist is None:
+        raw=os.environ.get('CAMPAIGN_TARGET_ALLOWLIST_JSON','{}')
+        try:
+            campaign_target_allowlist={str(k):set(v) for k,v in json.loads(raw).items()}
+        except (TypeError,ValueError):
+            raise RuntimeError('invalid CAMPAIGN_TARGET_ALLOWLIST_JSON')
+    install_campaign_routes(app, platform_database, campaign_secret_allowlist,
+                            campaign_target_allowlist)
     app.add_middleware(BodyLimit)
     return app

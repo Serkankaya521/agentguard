@@ -25,6 +25,13 @@ def _valid_api_base(value: str) -> bool:
     except ValueError:
         return False
 
+def _target_origin(value: str) -> str:
+    parsed=urlsplit(value)
+    host=parsed.hostname or ''
+    if ':' in host:host=f'[{host}]'
+    default=(parsed.scheme=='https' and parsed.port in (None,443)) or (parsed.scheme=='http' and parsed.port in (None,80))
+    return f'{parsed.scheme}://{host.lower()}{"" if default else ":"+str(parsed.port)}'
+
 class StrictModel(BaseModel):model_config=ConfigDict(extra='forbid',str_strip_whitespace=True)
 class CampaignStatusInput(StrictModel):status:Literal['active','paused','archived']
 class CampaignInput(StrictModel):
@@ -59,13 +66,23 @@ def public(row):
     data=dict(row);data.pop('secret_ref',None);data.pop('canary_secret_ref',None)
     data['secret_configured']=bool(row.get('secret_ref'));data['canary_configured']=bool(row.get('canary_secret_ref'));return data
 
-def install_campaign_routes(app,database:Database,secret_allowlist:dict[str,set[str]]|None=None):
+def install_campaign_routes(app,database:Database,secret_allowlist:dict[str,set[str]]|None=None,
+                            target_allowlist:dict[str,set[str]]|None=None):
     allowed_by_tenant=secret_allowlist or {}
+    targets_by_tenant={tenant:{_target_origin(value) for value in values}
+                       for tenant,values in (target_allowlist or {}).items()}
 
     def authorize_secrets(tenant_id,body):
         requested={ref[6:] for ref in (body.secret_ref,body.canary_secret_ref) if ref}
         if requested and not requested.issubset(allowed_by_tenant.get(str(tenant_id),set())):
             raise HTTPException(403,'SECRET_NOT_ASSIGNED')
+
+    def authorize_target(tenant_id,body):
+        endpoint=str(body.target_config.get('api_base',''));parsed=urlsplit(endpoint)
+        origin=_target_origin(endpoint)
+        local=parsed.scheme=='http' and parsed.hostname in {'localhost','127.0.0.1','::1'}
+        if not local and origin not in targets_by_tenant.get(str(tenant_id),set()):
+            raise HTTPException(403,'TARGET_NOT_ASSIGNED')
     @app.get('/v1/campaigns')
     def list_campaigns(request:Request,workspace_id:UUID,authorization:str|None=Header(None)):
         with database.authenticated(authorization) as (conn,p):
@@ -83,6 +100,7 @@ def install_campaign_routes(app,database:Database,secret_allowlist:dict[str,set[
         with database.authenticated(authorization) as (conn,p):
             database.authorize(p,'campaign.manage',str(body.workspace_id))
             authorize_secrets(p.tenant_id,body)
+            authorize_target(p.tenant_id,body)
             env=conn.execute('SELECT workspace_id,kind FROM platform.environments WHERE id=%s',(body.environment_id,)).fetchone()
             if not env or env['workspace_id']!=body.workspace_id:raise HTTPException(404,'NOT_FOUND')
             database.authorize(p,'campaign.manage',str(body.workspace_id),env['kind'])
