@@ -21,11 +21,14 @@ HIGH_RISK_THRESHOLD = 0.70
 
 class DeepAnalysisJob:
     def __init__(self, *, episodic, graph_repo, risk_publisher,
-                 evidence_validator=None, high_threshold: float = HIGH_RISK_THRESHOLD) -> None:
+                 evidence_validator=None, corpus_policy=None,
+                 high_threshold: float = HIGH_RISK_THRESHOLD) -> None:
         self._episodic = episodic
         self._graph = graph_repo
         self._risk = risk_publisher
         self._evidence_validator = evidence_validator
+        # Optional CorpusPromotionPolicy: governs corpus/DNA promotion of findings.
+        self._corpus_policy = corpus_policy
         self._threshold = high_threshold
 
     def analyze_learning_events(self, events: list[dict]) -> dict:
@@ -78,5 +81,17 @@ class DeepAnalysisJob:
             tenant_id=tenant_id, technique=finding.get("root_cause", "unknown"),
             outcome="confirmed", evidence_backed=bool(finding.get("evidence_backed")),
             confidence=0.7, source="finding")
-        return {"dna_fingerprint": dna.fingerprint(),
-                "explainable_features": dna.explainable_features()}
+        result = {"dna_fingerprint": dna.fingerprint(),
+                  "explainable_features": dna.explainable_features()}
+        # Governed promotion: only an observed evidence level enters the corpus/DNA
+        # index; a heuristic finding is quarantined. Computing the fingerprint above
+        # is not promotion — the policy decides what is indexed.
+        if self._corpus_policy is not None:
+            outcome = self._corpus_policy.ingest_candidate(
+                content={"root_cause": finding.get("root_cause"),
+                         "regression_fingerprint": finding.get("regression_fingerprint"),
+                         "successful_mutations": finding.get("successful_mutations")},
+                evidence_level=finding.get("evidence_level", ""), finding=finding)
+            result["promoted"] = outcome.promoted
+            result["promotion_reason"] = outcome.reason
+        return result

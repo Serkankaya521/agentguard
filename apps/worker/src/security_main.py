@@ -7,6 +7,7 @@ live request passes the kill switch and the safety budget.
 import os
 from dashboard.campaign_engine import CampaignConfig,run_campaign_sync
 from execution.kill_switch import KillSwitch
+from execution.distributed_kill_switch import DistributedKillSwitch
 from execution.live_target import (GuardedEvaluator,RoEConfig,ScopedSecretResolver,
                                    authorize_campaign,build_roe,finalize,target_origin)
 from execution.safety_budget import SafetyBudget
@@ -33,9 +34,19 @@ def make_runner(roe_config,kill_switch):
         return finalize(run_campaign_sync(cfg,api_key=api_key,wrap_evaluator=guard),guards[0])
     return runner
 
+def build_kill_switch():
+    # Distributed switch across instances when a shared store is configured; the
+    # in-process switch is a single-worker fallback for local/offline runs.
+    url=os.environ.get('REDIS_URL')
+    if not url:
+        return KillSwitch()
+    from redis import Redis
+    return DistributedKillSwitch(Redis.from_url(url,socket_timeout=0.5,
+                                                socket_connect_timeout=0.5,health_check_interval=30))
+
 def main():
     roe=RoEConfig.from_env(os.environ)
-    runner=make_runner(roe,KillSwitch())
+    runner=make_runner(roe,build_kill_switch())
     secrets=ScopedSecretResolver(roe,EnvironmentSecretResolver())
     store=S3ObjectStore(endpoint_url=os.environ['EVIDENCE_S3_ENDPOINT'],bucket=os.environ['EVIDENCE_S3_BUCKET'],region=os.environ.get('EVIDENCE_S3_REGION','us-east-1'))
     register('red_team.execute',CampaignExecutor(os.environ['CONTROL_DATABASE_URL'],store,runner,secret_resolver=secrets))
