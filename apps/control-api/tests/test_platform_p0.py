@@ -56,7 +56,8 @@ def platform():
                                approval_signing_key="approval-test-key",
                                evidence_signing_key="evidence-test-key",
                                object_store=store,
-                               campaign_secret_allowlist={str(tenant):{'TARGET_API_KEY','TARGET_CANARY'}})) as client:
+                               campaign_secret_allowlist={str(tenant):{'TARGET_API_KEY','TARGET_CANARY'}},
+                               campaign_target_allowlist={str(tenant):{'https://agent.test'}})) as client:
         assert client.put(f"/v1/organizations/{tenant}", json={"name":"P0 tenant"}, headers=headers).status_code == 200
         assert client.put(f"/v1/identities/{bootstrap_id}", json={
             "identity_type":"service", "display_name":"bootstrap", "attributes":{}
@@ -312,6 +313,7 @@ def test_campaign_schedule_recovery_and_canary_to_regression(platform):
     assert created.status_code==200 and created.json()['secret_configured'] and 'secret_ref' not in created.json()
     assert client.put(f'/v1/campaigns/{uuid4()}',json={**body,'target_config':{'api_base':'http://localhost.attacker.example/v1','model':'agent'}},headers=headers).status_code==422
     assert client.put(f'/v1/campaigns/{uuid4()}',json={**body,'secret_ref':'env://CONTROL_DATABASE_URL'},headers=headers).status_code==403
+    assert client.put(f'/v1/campaigns/{uuid4()}',json={**body,'target_config':{'api_base':'https://attacker.example/v1','model':'agent'}},headers=headers).status_code==403
     assert client.put(f'/v1/campaigns/{uuid4()}',json={**body,'name':'leak','target_config':{'api_base':'https://agent.test/v1','api_key':'plaintext'}},headers=headers).status_code==422
     paused=client.post(f'/v1/campaigns/{campaign_id}/status',json={'status':'paused'},headers={**headers,'If-Match':'1'})
     assert paused.status_code==200 and paused.json()['status']=='paused'
