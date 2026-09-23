@@ -238,8 +238,12 @@ def install_enterprise_routes(app, database: Database, *, policy_signing_key: st
         if body.expires_at <= datetime.now(timezone.utc) or body.expires_at > datetime.now(timezone.utc)+timedelta(days=366):
             raise HTTPException(422, "INVALID_EXPIRY")
         with database.authenticated(authorization) as (conn, principal):
-            database.authorize(principal, "identity.manage")
-            require_row(conn.execute("SELECT id FROM platform.identities WHERE id=%s AND status='active'", (identity_id,)).fetchone())
+            identity=require_row(conn.execute("SELECT id,identity_type FROM platform.identities WHERE id=%s AND status='active'", (identity_id,)).fetchone())
+            if identity["identity_type"] == "user":
+                if str(identity_id) != principal.identity_id:
+                    raise HTTPException(403,"USER_CREDENTIAL_SELF_SERVICE_ONLY")
+            else:
+                database.authorize(principal, "identity.manage")
             token = secrets.token_urlsafe(48)
             digest = __import__('hashlib').sha256(token.encode()).hexdigest()
             row = conn.execute(
@@ -441,9 +445,14 @@ def install_enterprise_routes(app, database: Database, *, policy_signing_key: st
                         authorization: str | None = Header(None)):
         with database.authenticated(authorization) as (conn, principal):
             approval = require_row(conn.execute("SELECT * FROM platform.approval_requests WHERE id=%s FOR UPDATE", (request_id,)).fetchone())
-            database.authorize(principal, "approval.decide", str(approval["workspace_id"]))
+            env = environment(conn, approval["environment_id"])
+            database.authorize(principal, "approval.decide", str(approval["workspace_id"]), env["kind"])
             if str(approval["requester_identity_id"]) == principal.identity_id:
                 raise HTTPException(403, "SELF_APPROVAL_DENIED")
+            high_risk=(approval["required_approvals"]>=2 or approval["capability_id"] in
+                       {"payment.execute","secret.read","identity.admin","shell.execute"})
+            if high_risk and principal.identity_type != "user":
+                raise HTTPException(403,"HUMAN_APPROVER_REQUIRED")
             decidable = ((body.decision == "REVOKE" and approval["status"] in ("pending","approved","exhausted"))
                          or (body.decision != "REVOKE" and approval["status"] in ("pending","approved")))
             if not decidable or approval["expires_at"] <= datetime.now(timezone.utc):
@@ -461,7 +470,7 @@ def install_enterprise_routes(app, database: Database, *, policy_signing_key: st
                 count = conn.execute("SELECT count(*) AS n FROM platform.approval_decisions WHERE request_id=%s AND decision='APPROVE'", (request_id,)).fetchone()["n"]
                 status = "approved" if count >= approval["required_approvals"] else "pending"
             conn.execute("UPDATE platform.approval_requests SET status=%s,version=version+1 WHERE id=%s", (status, request_id))
-            if status == "revoked":
+            if status in ("denied", "revoked"):
                 conn.execute("UPDATE platform.approval_tokens SET revoked_at=now() WHERE request_id=%s AND revoked_at IS NULL", (request_id,))
             audit(conn, principal, request.state.correlation_id, "approval."+body.decision.lower(), request_id)
             decision_contract = {"schema_version":"1.0.0","decision_id":str(decision_id),
@@ -473,7 +482,7 @@ def install_enterprise_routes(app, database: Database, *, policy_signing_key: st
             event_id = uuid4()
             enqueue_event(conn,principal,namespace="approval",event_type="approval.decided",
                           payload={"event_id":str(event_id),**decision_contract},priority="P2")
-            if status == "revoked":
+            if status in ("denied", "revoked"):
                 nonces = [row["nonce"] for row in conn.execute("SELECT nonce FROM platform.approval_tokens WHERE request_id=%s",(request_id,)).fetchall()]
                 revoke_event = uuid4()
                 enqueue_event(conn,principal,namespace="approval",event_type="approval.revoked",
@@ -547,7 +556,8 @@ def install_enterprise_routes(app, database: Database, *, policy_signing_key: st
                            if_match: int = Header(ge=1), authorization: str | None = Header(None)):
         with database.authenticated(authorization) as (conn, principal):
             finding = require_row(conn.execute("SELECT * FROM platform.findings WHERE id=%s FOR UPDATE", (finding_id,)).fetchone())
-            database.authorize(principal, "finding.manage", str(finding["workspace_id"]))
+            env = environment(conn, finding["environment_id"])
+            database.authorize(principal, "finding.manage", str(finding["workspace_id"]), env["kind"])
             if body.state not in TRANSITIONS[finding["state"]]:
                 raise HTTPException(409, "INVALID_FINDING_TRANSITION")
             document = dict(finding["document"])
@@ -604,7 +614,8 @@ def install_enterprise_routes(app, database: Database, *, policy_signing_key: st
             raise HTTPException(503, "POLICY_SIGNING_UNAVAILABLE")
         with database.authenticated(authorization) as (conn, principal):
             policy = require_row(conn.execute("SELECT * FROM platform.policies WHERE id=%s FOR UPDATE", (policy_id,)).fetchone())
-            database.authorize(principal, "policy.manage", str(policy["workspace_id"]))
+            env = environment(conn, policy["environment_id"])
+            database.authorize(principal, "policy.manage", str(policy["workspace_id"]), env["kind"])
             if policy["version"] != if_match:
                 raise HTTPException(409, "VERSION_CONFLICT")
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
@@ -630,7 +641,8 @@ def install_enterprise_routes(app, database: Database, *, policy_signing_key: st
     def rollback_policy(policy_id: UUID, request: Request, authorization: str | None = Header(None)):
         with database.authenticated(authorization) as (conn, principal):
             target = require_row(conn.execute("SELECT * FROM platform.policies WHERE id=%s AND compiled_document IS NOT NULL FOR UPDATE", (policy_id,)).fetchone())
-            database.authorize(principal, "policy.manage", str(target["workspace_id"]))
+            env = environment(conn, target["environment_id"])
+            database.authorize(principal, "policy.manage", str(target["workspace_id"]), env["kind"])
             if not policy_signing_key:
                 raise HTTPException(503, "POLICY_SIGNING_UNAVAILABLE")
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
@@ -654,7 +666,7 @@ def install_enterprise_routes(app, database: Database, *, policy_signing_key: st
         if object_store is None:
             raise HTTPException(503, "OBJECT_STORAGE_UNAVAILABLE")
         with database.authenticated(authorization) as (conn, principal):
-            database.authorize(principal, "evidence.read")
+            database.authorize(principal, "evidence.write")
             try:
                 url = object_store.create_upload(principal.tenant_id,body.object_key,
                     sha256=body.sha256,media_type=body.media_type,expires_s=300)
@@ -672,15 +684,18 @@ def install_enterprise_routes(app, database: Database, *, policy_signing_key: st
             env = environment(conn, body.environment_id)
             if env["workspace_id"] != body.workspace_id:
                 raise HTTPException(404, "NOT_FOUND")
-            database.authorize(principal, "evidence.read", str(body.workspace_id), env["kind"])
+            database.authorize(principal, "evidence.write", str(body.workspace_id), env["kind"])
             prefix = principal.tenant_id + "/"
             if not body.object_key.startswith(prefix) or ".." in body.object_key.split("/"):
                 raise HTTPException(422, "UNSAFE_OBJECT_KEY")
             try:
                 stored = object_store.head(principal.tenant_id, body.object_key)
+                verified_hash = object_store.verify_sha256(principal.tenant_id, body.object_key,
+                                                           max_bytes=body.size_bytes)
             except (KeyError, ValueError):
                 raise HTTPException(409, "EVIDENCE_OBJECT_NOT_VERIFIED")
             if (stored.size_bytes != body.size_bytes or stored.sha256 != body.object_hash.removeprefix("sha256:")
+                    or verified_hash != body.object_hash.removeprefix("sha256:")
                     or stored.media_type != body.media_type):
                 raise HTTPException(409, "EVIDENCE_OBJECT_MISMATCH")
             evidence_id = uuid4()

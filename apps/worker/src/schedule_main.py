@@ -4,6 +4,7 @@ import os
 from uuid import uuid4,uuid5
 import psycopg
 from psycopg.rows import dict_row
+from tenant_ids import active_tenant_ids
 
 def run_tenant(dsn,tenant_id,batch_size=50):
     with psycopg.connect(dsn,row_factory=dict_row) as conn:
@@ -31,7 +32,6 @@ def run_tenant(dsn,tenant_id,batch_size=50):
         return len(rows)+len(campaign_rows)
 
 def main():
-    tenants=tuple(filter(None,os.environ.get('PLATFORM_TENANT_IDS','').split(',')))
-    if not tenants:raise RuntimeError('PLATFORM_TENANT_IDS is required')
+    tenants=active_tenant_ids(os.environ['CONTROL_DATABASE_URL'])
     for tenant in tenants:run_tenant(os.environ['CONTROL_DATABASE_URL'],tenant)
 if __name__=='__main__':main()

@@ -2,15 +2,14 @@
 import os
 import signal
 import time
+import psycopg
 
 from event_backbone import KafkaProducerAdapter, OutboxPublisher
 
 
 def main():
-    tenants = tuple(filter(None,os.environ.get('PLATFORM_TENANT_IDS','').split(',')))
-    if not tenants:
-        raise RuntimeError('PLATFORM_TENANT_IDS is required for fair tenant scheduling')
-    publisher = OutboxPublisher(os.environ['CONTROL_DATABASE_URL'],
+    dsn=os.environ['CONTROL_DATABASE_URL']
+    publisher = OutboxPublisher(dsn,
         KafkaProducerAdapter(os.environ['KAFKA_BOOTSTRAP_SERVERS']),batch_size=100)
     running = True
     def stop(*_):
@@ -18,6 +17,8 @@ def main():
         running = False
     signal.signal(signal.SIGTERM,stop)
     while running:
+        with psycopg.connect(dsn) as conn:
+            tenants=tuple(row[0] for row in conn.execute('SELECT * FROM platform.active_tenant_ids()'))
         work = sum(publisher.deliver_once(tenant).published for tenant in tenants)
         if not work:
             time.sleep(.25)

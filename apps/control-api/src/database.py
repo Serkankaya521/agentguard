@@ -79,8 +79,7 @@ class Database:
             raise HTTPException(401, "UNAUTHENTICATED")
         with self.connect() as conn:
             credential = conn.execute(
-                "SELECT tenant_id,identity_id,role,label FROM platform.credentials "
-                "WHERE token_hash=%s AND NOT revoked AND expires_at>now()",
+                "SELECT * FROM platform.authenticate_credential(%s)",
                 (hashlib.sha256(token.encode()).hexdigest(),),
             ).fetchone()
             if not credential:

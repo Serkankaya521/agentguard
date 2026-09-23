@@ -17,9 +17,10 @@ class EnvironmentSecretResolver:
         return value
 
 class CampaignExecutor:
-    def __init__(self,dsn,object_store,runner,secret_resolver=None):
+    def __init__(self,dsn,object_store,runner,secret_resolver=None,deep_analysis=None):
         self.dsn,self.objects,self.runner=dsn,object_store,runner
         self.secrets=secret_resolver or EnvironmentSecretResolver()
+        self.deep_analysis=deep_analysis
     def __call__(self,envelope):
         tenant,run_id,campaign_id=envelope['tenant_id'],envelope['payload']['run_id'],envelope['payload']['campaign_id']
         with psycopg.connect(self.dsn,row_factory=dict_row) as conn:
@@ -46,6 +47,8 @@ class CampaignExecutor:
                     now=datetime.now(timezone.utc).isoformat()
                     fingerprint=hashlib.sha256(candidate.prompt.encode()).hexdigest()
                     document={'schema_version':'1.0.0','finding_id':str(finding_id),'tenant_id':str(tenant),'state':'CONFIRMED','root_cause':'The target agent disclosed a server-side canary that was absent from the attack payload.','title':'Target-side canary disclosure','severity':'CRITICAL','campaign_id':str(campaign_id),'run_id':str(run_id),'successful_mutations':list(candidate.mutations_applied),'evidence_level':level,'evidence_pattern':f'sha256:{response_hash}','evidence_backed':True,'remediation':'Tighten instruction boundaries, tool authorization and secret isolation; then replay this regression case.','regression_fingerprint':fingerprint,'created_at':now,'updated_at':now}
+                    if self.deep_analysis is not None:
+                        document['aegis']=self.deep_analysis.analyze_finding(document)
                     conn.execute("INSERT INTO platform.findings(tenant_id,id,workspace_id,environment_id,state,document) VALUES(%s,%s,%s,%s,'CONFIRMED',%s)",(tenant,finding_id,campaign['workspace_id'],campaign['environment_id'],psycopg.types.json.Jsonb(document)))
                     conn.execute("INSERT INTO platform.regression_cases(tenant_id,id,finding_id,campaign_id,payload) VALUES(%s,%s,%s,%s,%s) ON CONFLICT(tenant_id,finding_id) DO NOTHING",(tenant,uuid4(),finding_id,campaign_id,candidate.prompt))
                 conn.execute('INSERT INTO platform.campaign_candidates(tenant_id,id,run_id,generation,lineage,payload,response_hash,fitness,evidence_level,finding_id) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(tenant,uuid4(),run_id,candidate.generation,psycopg.types.json.Jsonb(candidate.mutations_applied),candidate.prompt,response_hash,candidate.fitness_score,level,finding_id))

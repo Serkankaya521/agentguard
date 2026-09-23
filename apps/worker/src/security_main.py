@@ -15,6 +15,15 @@ from jobs.campaigns import CampaignExecutor,EnvironmentSecretResolver,Regression
 from object_store import S3ObjectStore
 from platform_main import register,main as worker_main
 
+def build_deep_analysis():
+    from corpus_promotion import CorpusPromotionPolicy
+    from repository import GraphRepository
+    from jobs.deep_analysis import DeepAnalysisJob
+    from memory.episodic import EpisodicMemory
+    from risk_profiles import RiskProfilePublisher
+    return DeepAnalysisJob(episodic=EpisodicMemory(),graph_repo=GraphRepository(),
+        risk_publisher=RiskProfilePublisher(),corpus_policy=CorpusPromotionPolicy())
+
 def make_runner(roe_config,kill_switch):
     def runner(row,api_key=None,seed_prompt=None):
         tenant_roe=roe_config.for_tenant(row['tenant_id'])
@@ -49,7 +58,8 @@ def main():
     runner=make_runner(roe,build_kill_switch())
     secrets=ScopedSecretResolver(roe,EnvironmentSecretResolver())
     store=S3ObjectStore(endpoint_url=os.environ['EVIDENCE_S3_ENDPOINT'],bucket=os.environ['EVIDENCE_S3_BUCKET'],region=os.environ.get('EVIDENCE_S3_REGION','us-east-1'))
-    register('red_team.execute',CampaignExecutor(os.environ['CONTROL_DATABASE_URL'],store,runner,secret_resolver=secrets))
+    register('red_team.execute',CampaignExecutor(os.environ['CONTROL_DATABASE_URL'],store,runner,
+        secret_resolver=secrets,deep_analysis=build_deep_analysis()))
     register('regression.execute',RegressionExecutor(os.environ['CONTROL_DATABASE_URL'],runner,secret_resolver=secrets))
     worker_main(include_defaults=False)
 if __name__=='__main__':main()

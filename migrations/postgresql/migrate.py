@@ -14,6 +14,10 @@ def _migrations():
 
 def migrate(dsn, direction, target=None):
     with psycopg.connect(dsn, connect_timeout=5) as conn:
+        if direction == 'down':
+            role=conn.execute('SELECT rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user').fetchone()
+            if not role or not (role[0] or role[1]):
+                raise RuntimeError('down migrations require a superuser or BYPASSRLS role')
         conn.execute('SELECT pg_advisory_xact_lock(71319001)')
         conn.execute('CREATE TABLE IF NOT EXISTS public.platform_migrations (version integer PRIMARY KEY, checksum text NOT NULL)')
         migrations = _migrations()

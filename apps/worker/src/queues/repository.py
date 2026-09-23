@@ -38,6 +38,13 @@ class JobRepository:
             raise ValueError("invalid lease")
         with psycopg.connect(self.dsn,row_factory=dict_row) as conn:
             conn.execute("SELECT set_config('app.tenant_id',%s,true)", (str(tenant_id),))
+            # Reclaim work abandoned by a crashed worker. Attempts were already
+            # incremented at the original claim, so the normal max-attempt path
+            # remains authoritative when the job fails again.
+            conn.execute(
+                "UPDATE platform.jobs SET status=CASE WHEN attempt>=max_attempts THEN 'dead_letter' ELSE 'retry' END,"
+                "last_error_code='LEASE_EXPIRED',lease_until=NULL,not_before=now() "
+                "WHERE status='running' AND lease_until<now()")
             allowed=tuple(job_types or ())
             type_filter=" AND job_type=ANY(%s)" if allowed else ""
             params=(list(allowed),self.max_batch) if allowed else (self.max_batch,)

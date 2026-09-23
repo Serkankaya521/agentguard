@@ -1,5 +1,6 @@
 """S3-compatible evidence object storage with tenant-safe paths."""
 from dataclasses import dataclass
+import hashlib
 import re
 
 
@@ -54,6 +55,19 @@ class S3ObjectStore:
         validate_object_key(tenant_id,key)
         self.client.delete_object(Bucket=self.bucket,Key=key)
 
+    def verify_sha256(self, tenant_id: str, key: str, *, max_bytes: int) -> str:
+        validate_object_key(tenant_id,key)
+        if not 0 <= max_bytes <= 104857600:
+            raise ValueError("invalid verification bound")
+        response=self.client.get_object(Bucket=self.bucket,Key=key)
+        digest=hashlib.sha256();read=0
+        for chunk in response["Body"].iter_chunks(chunk_size=1024*1024):
+            read+=len(chunk)
+            if read>max_bytes:raise ValueError("object exceeds declared size")
+            digest.update(chunk)
+        if read!=max_bytes:raise ValueError("object size mismatch")
+        return digest.hexdigest()
+
 
 class MemoryObjectStore:
     """Deterministic test adapter; production uses S3ObjectStore."""
@@ -94,3 +108,8 @@ class MemoryObjectStore:
         if owner != str(tenant_id):
             raise ValueError("object tenant metadata mismatch")
         del self.objects[key]
+
+    def verify_sha256(self, tenant_id, key, *, max_bytes):
+        content=self.get(tenant_id,key)
+        if len(content)!=max_bytes:raise ValueError("object size mismatch")
+        return hashlib.sha256(content).hexdigest()

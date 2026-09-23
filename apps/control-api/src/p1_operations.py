@@ -24,6 +24,7 @@ class OperatingLimitsInput(StrictModel):
     audit_retention_days: int = Field(ge=365, le=36_500)
     evidence_retention_days: int = Field(ge=30, le=36_500)
     report_retention_days: int = Field(ge=1, le=3_650)
+    max_campaigns: int = Field(default=100,ge=1,le=10_000)
 
 
 class IntegrationInput(StrictModel):

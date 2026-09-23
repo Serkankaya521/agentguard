@@ -2,6 +2,7 @@
 from datetime import datetime,timezone
 import re
 from typing import Literal
+from urllib.parse import urlsplit
 from uuid import UUID,uuid4
 
 import psycopg
@@ -11,6 +12,18 @@ from pydantic import BaseModel,ConfigDict,Field,model_validator
 from database import Database,audit
 
 SECRET_REF=re.compile(r'^env://[A-Z][A-Z0-9_]{1,127}$')
+
+def _valid_api_base(value: str) -> bool:
+    """Allow TLS endpoints and exact local-loopback HTTP origins only."""
+    try:
+        parsed=urlsplit(value)
+        if parsed.username or parsed.password or not parsed.hostname:
+            return False
+        if parsed.scheme=='https':
+            return True
+        return parsed.scheme=='http' and parsed.hostname in {'localhost','127.0.0.1','::1'}
+    except ValueError:
+        return False
 
 class StrictModel(BaseModel):model_config=ConfigDict(extra='forbid',str_strip_whitespace=True)
 class CampaignStatusInput(StrictModel):status:Literal['active','paused','archived']
@@ -39,14 +52,20 @@ class CampaignInput(StrictModel):
         if self.mutation_budget < self.request_budget:raise ValueError('mutation_budget must cover request_budget')
         if self.max_concurrency != 1:raise ValueError('this adapter supports max_concurrency=1')
         endpoint=str(self.target_config.get('api_base',''))
-        if self.target_type=='openai_compatible' and not endpoint.startswith(('https://','http://127.0.0.1','http://localhost')):raise ValueError('secure api_base required')
+        if self.target_type=='openai_compatible' and not _valid_api_base(endpoint):raise ValueError('secure api_base required')
         return self
 
 def public(row):
     data=dict(row);data.pop('secret_ref',None);data.pop('canary_secret_ref',None)
     data['secret_configured']=bool(row.get('secret_ref'));data['canary_configured']=bool(row.get('canary_secret_ref'));return data
 
-def install_campaign_routes(app,database:Database):
+def install_campaign_routes(app,database:Database,secret_allowlist:dict[str,set[str]]|None=None):
+    allowed_by_tenant=secret_allowlist or {}
+
+    def authorize_secrets(tenant_id,body):
+        requested={ref[6:] for ref in (body.secret_ref,body.canary_secret_ref) if ref}
+        if requested and not requested.issubset(allowed_by_tenant.get(str(tenant_id),set())):
+            raise HTTPException(403,'SECRET_NOT_ASSIGNED')
     @app.get('/v1/campaigns')
     def list_campaigns(request:Request,workspace_id:UUID,authorization:str|None=Header(None)):
         with database.authenticated(authorization) as (conn,p):
@@ -63,12 +82,21 @@ def install_campaign_routes(app,database:Database):
     def put_campaign(campaign_id:UUID,body:CampaignInput,request:Request,authorization:str|None=Header(None),if_match:int=Header(0,ge=0)):
         with database.authenticated(authorization) as (conn,p):
             database.authorize(p,'campaign.manage',str(body.workspace_id))
-            env=conn.execute('SELECT workspace_id FROM platform.environments WHERE id=%s',(body.environment_id,)).fetchone()
+            authorize_secrets(p.tenant_id,body)
+            env=conn.execute('SELECT workspace_id,kind FROM platform.environments WHERE id=%s',(body.environment_id,)).fetchone()
             if not env or env['workspace_id']!=body.workspace_id:raise HTTPException(404,'NOT_FOUND')
+            database.authorize(p,'campaign.manage',str(body.workspace_id),env['kind'])
             existing=conn.execute('SELECT * FROM platform.campaigns WHERE id=%s FOR UPDATE',(campaign_id,)).fetchone()
             values=(body.name,body.target_type,psycopg.types.json.Jsonb(body.target_config),body.secret_ref,body.canary_secret_ref,body.seed_prompt,psycopg.types.json.Jsonb(body.objective_markers),body.request_budget,body.mutation_budget,body.max_concurrency,body.interval_minutes,body.status,body.next_run_at)
             if if_match==0:
                 if existing:raise HTTPException(409,'VERSION_CONFLICT')
+                conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',(p.tenant_id+':campaigns',))
+                campaign_limit=conn.execute(
+                    'INSERT INTO platform.tenant_operating_limits(tenant_id) VALUES(%s) '
+                    'ON CONFLICT(tenant_id) DO UPDATE SET tenant_id=excluded.tenant_id RETURNING max_campaigns',
+                    (p.tenant_id,)).fetchone()['max_campaigns']
+                if conn.execute('SELECT count(*) AS n FROM platform.campaigns').fetchone()['n']>=campaign_limit:
+                    raise HTTPException(429,'TENANT_QUOTA_EXCEEDED')
                 row=conn.execute('INSERT INTO platform.campaigns(tenant_id,id,workspace_id,environment_id,created_by,name,target_type,target_config,secret_ref,canary_secret_ref,seed_prompt,objective_markers,request_budget,mutation_budget,max_concurrency,interval_minutes,status,next_run_at) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *',(p.tenant_id,campaign_id,body.workspace_id,body.environment_id,p.identity_id,*values)).fetchone()
             else:
                 if existing and (existing['workspace_id']!=body.workspace_id or existing['environment_id']!=body.environment_id):raise HTTPException(409,'PARENT_IMMUTABLE')
@@ -81,7 +109,8 @@ def install_campaign_routes(app,database:Database):
         with database.authenticated(authorization) as (conn,p):
             campaign=conn.execute('SELECT * FROM platform.campaigns WHERE id=%s FOR UPDATE',(campaign_id,)).fetchone()
             if not campaign:raise HTTPException(404,'NOT_FOUND')
-            database.authorize(p,'campaign.manage',str(campaign['workspace_id']))
+            env=conn.execute('SELECT kind FROM platform.environments WHERE id=%s',(campaign['environment_id'],)).fetchone()
+            database.authorize(p,'campaign.manage',str(campaign['workspace_id']),env['kind'])
             if body.status=='active' and (not campaign['interval_minutes'] or not campaign['next_run_at']):raise HTTPException(409,'SCHEDULE_REQUIRED')
             row=conn.execute('UPDATE platform.campaigns SET status=%s,version=version+1,updated_at=clock_timestamp() WHERE id=%s AND version=%s RETURNING *',(body.status,campaign_id,if_match)).fetchone()
             if not row:raise HTTPException(409,'VERSION_CONFLICT')
@@ -92,7 +121,8 @@ def install_campaign_routes(app,database:Database):
         with database.authenticated(authorization) as (conn,p):
             campaign=conn.execute('SELECT * FROM platform.campaigns WHERE id=%s',(campaign_id,)).fetchone()
             if not campaign:raise HTTPException(404,'NOT_FOUND')
-            database.authorize(p,'campaign.manage',str(campaign['workspace_id']))
+            env=conn.execute('SELECT kind FROM platform.environments WHERE id=%s',(campaign['environment_id'],)).fetchone()
+            database.authorize(p,'campaign.manage',str(campaign['workspace_id']),env['kind'])
             existing=conn.execute("SELECT id,payload->>'run_id' AS run_id FROM platform.jobs WHERE idempotency_key=%s",(idempotency_key,)).fetchone()
             if existing:return {'run_id':existing['run_id'],'status':'queued'}
             run_id=uuid4();job_id=uuid4();now=datetime.now(timezone.utc)
@@ -118,7 +148,8 @@ def install_campaign_routes(app,database:Database):
         with database.authenticated(authorization) as (conn,p):
             case=conn.execute('SELECT r.*,c.workspace_id,c.environment_id FROM platform.regression_cases r JOIN platform.campaigns c ON c.tenant_id=r.tenant_id AND c.id=r.campaign_id WHERE r.id=%s',(case_id,)).fetchone()
             if not case:raise HTTPException(404,'NOT_FOUND')
-            database.authorize(p,'campaign.manage',str(case['workspace_id']))
+            env=conn.execute('SELECT kind FROM platform.environments WHERE id=%s',(case['environment_id'],)).fetchone()
+            database.authorize(p,'campaign.manage',str(case['workspace_id']),env['kind'])
             existing=conn.execute('SELECT id FROM platform.jobs WHERE idempotency_key=%s',(idempotency_key,)).fetchone()
             if existing:return {'case_id':str(case_id),'status':'queued'}
             payload={'case_id':str(case_id),'campaign_id':str(case['campaign_id'])}

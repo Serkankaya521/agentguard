@@ -4,7 +4,7 @@ async function proxy(request:NextRequest,{params}:{params:Promise<{path:string[]
   const token=request.cookies.get('agentguard_session')?.value;
   if(!token)return NextResponse.json({code:'UNAUTHENTICATED'},{status:401});
   const segments=(await params).path;
-  if(!segments.length||segments[0]!=='v1'||segments.some(p=>!/^[-A-Za-z0-9._]+$/.test(p)))
+  if(!segments.length||segments[0]!=='v1'||segments.some(p=>p==='.'||p==='..'||!/^[-A-Za-z0-9._]+$/.test(p)))
     return NextResponse.json({code:'PATH_DENIED'},{status:400});
   if(!['GET','POST','PUT','DELETE'].includes(request.method))return NextResponse.json({code:'METHOD_DENIED'},{status:405});
   if(request.method!=='GET'){
