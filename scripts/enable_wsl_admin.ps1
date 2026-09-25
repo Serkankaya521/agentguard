@@ -3,7 +3,10 @@ $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
 $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    throw "ADMIN_REQUIRED: Open PowerShell with 'Run as administrator' and run this script again."
+    Write-Host "Requesting administrator permission through Windows UAC..."
+    $arguments = "-NoExit -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+    Start-Process powershell.exe -Verb RunAs -ArgumentList $arguments
+    exit
 }
 
 Write-Host "Enabling Windows Subsystem for Linux and Virtual Machine Platform..."
