@@ -6,6 +6,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     secrets: [postgres_password]
+    ports: ["127.0.0.1:55433:5432"]
     healthcheck: {test: ["CMD-SHELL", "pg_isready -U postgres"], interval: 5s, timeout: 3s, retries: 20}
     volumes: ["postgres-data:/var/lib/postgresql/data"]
     networks: [backend]
@@ -13,6 +14,8 @@ services:
     image: bitnami/redis:8.2
     environment: [ALLOW_EMPTY_PASSWORD=no, REDIS_PASSWORD_FILE=/run/secrets/redis_password]
     secrets: [redis_password]
+    ports: ["127.0.0.1:56379:6379"]
+    healthcheck: {test: ["CMD-SHELL", "REDISCLI_AUTH=$$(cat /run/secrets/redis_password) redis-cli ping | grep PONG"], interval: 5s, timeout: 3s, retries: 20}
     networks: [backend]
   redis-replica-1:
     image: bitnami/redis:8.2
@@ -26,13 +29,17 @@ services:
     networks: [backend]
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v26.2.2
-    command: [redpanda, start, --smp, "1", --memory, 1G, --overprovisioned, --node-id, "0", --kafka-addr, PLAINTEXT://0.0.0.0:9092, --advertise-kafka-addr, PLAINTEXT://redpanda:9092]
+    command: [redpanda, start, --smp, "1", --memory, 1G, --overprovisioned, --node-id, "0", --kafka-addr, "INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:19092", --advertise-kafka-addr, "INTERNAL://redpanda:9092,EXTERNAL://127.0.0.1:59092"]
+    ports: ["127.0.0.1:59092:19092"]
+    healthcheck: {test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"], interval: 8s, timeout: 5s, retries: 25}
     networks: [backend]
   minio:
     image: minio/minio:RELEASE.2025-10-15T17-29-55Z
     command: server /data --console-address :9001
     environment: [MINIO_ROOT_USER_FILE=/run/secrets/minio_user, MINIO_ROOT_PASSWORD_FILE=/run/secrets/minio_password]
     secrets: [minio_user, minio_password]
+    ports: ["127.0.0.1:59000:9000", "127.0.0.1:59002:9001"]
+    healthcheck: {test: ["CMD", "mc", "ready", "local"], interval: 5s, timeout: 4s, retries: 20}
     volumes: ["object-data:/data"]
     networks: [backend]
   otel-collector:
@@ -44,6 +51,8 @@ services:
     image: clickhouse/clickhouse-server:26.8.4.11-alpine
     environment: [CLICKHOUSE_DB=agentguard, CLICKHOUSE_USER=agentguard, CLICKHOUSE_PASSWORD_FILE=/run/secrets/clickhouse_password]
     secrets: [clickhouse_password]
+    ports: ["127.0.0.1:58123:8123", "127.0.0.1:59001:9000"]
+    healthcheck: {test: ["CMD", "clickhouse-client", "--query", "SELECT 1"], interval: 5s, timeout: 4s, retries: 30}
     volumes: ["clickhouse-data:/var/lib/clickhouse", "../clickhouse/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro"]
     networks: [backend]
 secrets:

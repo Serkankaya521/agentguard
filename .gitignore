@@ -30,6 +30,7 @@ tests/test_report.json
 tests/fuzzer_bypasses.json
 AgentGuard_Audit_Report.pdf
 .streamlit/secrets.toml
+infra/docker/secrets/
 .idea/
 .vscode/
 .DS_Store
