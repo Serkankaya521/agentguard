@@ -263,5 +263,7 @@ def create_app(dsn=None, *, policy_signing_key=None, approval_signing_key=None,
             raise RuntimeError('invalid CAMPAIGN_TARGET_ALLOWLIST_JSON')
     install_campaign_routes(app, platform_database, campaign_secret_allowlist,
                             campaign_target_allowlist)
+    from assessments import install_assessment_routes
+    install_assessment_routes(app, platform_database)
     app.add_middleware(BodyLimit)
     return app
