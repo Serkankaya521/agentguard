@@ -25,6 +25,7 @@ node_modules/
 *.tsbuildinfo
 
 # Generated artifacts and local state
+graphify-out/
 *.log
 tests/test_report.json
 tests/fuzzer_bypasses.json
