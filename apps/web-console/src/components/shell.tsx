@@ -5,8 +5,8 @@ import {ReactNode} from 'react';
 import {useWorkspace, WorkspaceProvider} from '@/lib/workspace';
 
 const NAV: {heading: string; links: [string, string][]}[] = [
-  {heading: 'Testing', links: [['/', 'Overview'], ['/campaigns', 'Campaigns'], ['/findings', 'Findings'],
-                               ['/evidence', 'Regression cases']]},
+  {heading: 'Testing', links: [['/', 'Overview'], ['/campaigns', 'Campaigns'], ['/coverage', 'Coverage'],
+                               ['/findings', 'Findings'], ['/evidence', 'Regression cases']]},
   {heading: 'Runtime defense', links: [['/policies', 'Policies'], ['/approvals', 'Approvals'], ['/assets', 'Assets']]},
   {heading: 'Administration', links: [['/workspaces', 'Workspaces'], ['/reports', 'Reports'],
                                       ['/integrations', 'Integrations'], ['/operations', 'Usage and limits']]},

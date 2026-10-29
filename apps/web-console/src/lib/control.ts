@@ -110,6 +110,16 @@ export type FindingDetail = {
                        fitness: number; evidence_level: string}} | null;
 };
 
+export type CoverageCampaign = {
+  id: string; name: string; status: string; environment_kind: string; interval_minutes: number | null;
+  runs: number; last_run_at: string | null; last_status: string | null; open_findings: number;
+  age_days: number | null; scheduled: boolean; stale: boolean;
+};
+export type Coverage = {
+  agents_registered: number; campaigns_total: number; untested_agents: number;
+  scheduled: number; stale: number; never_run: number; campaigns: CoverageCampaign[];
+};
+
 export type Overview = {
   campaigns: {total: number; active: number};
   runs_30d: {total: number; completed: number; failed: number; requests: number; last_completed_at: string | null};

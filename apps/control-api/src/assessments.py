@@ -139,6 +139,47 @@ def install_assessment_routes(app, database: Database):
             'X-Content-Type-Options': 'nosniff',
         })
 
+    @app.get('/v1/assessments/coverage')
+    def coverage(request: Request, workspace_id: UUID, authorization: str | None = Header(None)):
+        """What is actually being tested: each campaign (a target under test) with its
+        last run and staleness, plus how many registered agents have no campaign at all."""
+        with database.authenticated(authorization) as (conn, principal):
+            database.authorize(principal, 'tenant.read', str(workspace_id))
+            agents = conn.execute(
+                "SELECT count(*) AS n FROM platform.assets WHERE workspace_id=%s AND asset_type='agent'",
+                (workspace_id,)).fetchone()['n']
+            rows = conn.execute(
+                "SELECT c.id,c.name,c.status,c.interval_minutes,c.next_run_at,e.kind AS environment_kind,"
+                "count(r.id) AS runs,max(r.created_at) AS last_run_at,"
+                "(SELECT status FROM platform.campaign_runs WHERE campaign_id=c.id ORDER BY created_at DESC LIMIT 1) AS last_status,"
+                "(SELECT count(*) FROM platform.findings f WHERE f.document->>'campaign_id'=c.id::text "
+                " AND f.state NOT IN ('RESOLVED_VERIFIED','FALSE_POSITIVE')) AS open_findings "
+                "FROM platform.campaigns c JOIN platform.environments e ON e.tenant_id=c.tenant_id AND e.id=c.environment_id "
+                "LEFT JOIN platform.campaign_runs r ON r.tenant_id=c.tenant_id AND r.campaign_id=c.id "
+                "WHERE c.workspace_id=%s GROUP BY c.id,c.name,c.status,c.interval_minutes,c.next_run_at,e.kind "
+                "ORDER BY max(r.created_at) NULLS FIRST", (workspace_id,)).fetchall()
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        campaigns = []
+        stale = never = 0
+        for row in rows:
+            last = row['last_run_at']
+            age_days = (now - last).days if last else None
+            scheduled = row['status'] == 'active'
+            # Stale: not scheduled and either never run or last tested over 14 days ago.
+            is_stale = (not scheduled) and (last is None or age_days is not None and age_days > 14)
+            if last is None:
+                never += 1
+            if is_stale:
+                stale += 1
+            campaigns.append({**dict(row), 'age_days': age_days, 'scheduled': scheduled, 'stale': is_stale})
+        return {
+            'agents_registered': agents, 'campaigns_total': len(rows),
+            'untested_agents': max(0, agents - len(rows)),
+            'scheduled': sum(1 for r in rows if r['status'] == 'active'),
+            'stale': stale, 'never_run': never, 'campaigns': campaigns,
+        }
+
     @app.get('/v1/assessments/overview')
     def overview(request: Request, workspace_id: UUID, authorization: str | None = Header(None)):
         with database.authenticated(authorization) as (conn, principal):
