@@ -2,14 +2,15 @@
 import Link from 'next/link';
 import {usePathname} from 'next/navigation';
 import {ReactNode} from 'react';
+import {I18nProvider, useT} from '@/lib/i18n';
 import {useWorkspace, WorkspaceProvider} from '@/lib/workspace';
 
 const NAV: {heading: string; links: [string, string][]}[] = [
-  {heading: 'Testing', links: [['/', 'Overview'], ['/campaigns', 'Campaigns'], ['/coverage', 'Coverage'],
-                               ['/findings', 'Findings'], ['/evidence', 'Regression cases']]},
-  {heading: 'Runtime defense', links: [['/policies', 'Policies'], ['/approvals', 'Approvals'], ['/assets', 'Assets']]},
-  {heading: 'Administration', links: [['/workspaces', 'Workspaces'], ['/reports', 'Reports'],
-                                      ['/integrations', 'Integrations'], ['/operations', 'Usage and limits']]},
+  {heading: 'nav.testing', links: [['/', 'nav.overview'], ['/campaigns', 'nav.campaigns'], ['/coverage', 'nav.coverage'],
+                                   ['/findings', 'nav.findings'], ['/evidence', 'nav.regressions']]},
+  {heading: 'nav.runtime', links: [['/policies', 'nav.policies'], ['/approvals', 'nav.approvals'], ['/assets', 'nav.assets']]},
+  {heading: 'nav.admin', links: [['/workspaces', 'nav.workspaces'], ['/reports', 'nav.reports'],
+                                 ['/integrations', 'nav.integrations'], ['/operations', 'nav.operations']]},
 ];
 
 function active(pathname: string, href: string): boolean {
@@ -18,12 +19,21 @@ function active(pathname: string, href: string): boolean {
 
 function WorkspaceSwitch() {
   const {workspaces, workspaceId, setWorkspaceId} = useWorkspace();
+  const {t} = useT();
   if (workspaces.length < 1) return null;
   return <div className="workspace-switch">
-    <label htmlFor="workspace">Workspace</label>
+    <label htmlFor="workspace">{t('nav.workspace')}</label>
     <select id="workspace" value={workspaceId} onChange={event => setWorkspaceId(event.target.value)}>
       {workspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
     </select>
+  </div>;
+}
+
+function LangSwitch() {
+  const {lang, setLang} = useT();
+  return <div className="lang-switch" role="group" aria-label="Language">
+    {(['tr', 'en'] as const).map(code =>
+      <button key={code} aria-pressed={lang === code} onClick={() => setLang(code)}>{code.toUpperCase()}</button>)}
   </div>;
 }
 
@@ -32,12 +42,25 @@ async function signOut() {
   location.assign('/login');
 }
 
+function SidebarNav({pathname}: {pathname: string}) {
+  const {t} = useT();
+  return <>
+    <WorkspaceSwitch/>
+    <nav aria-label="Main">{NAV.map(group => <div className="nav-group" key={group.heading}>
+      <h4>{t(group.heading)}</h4>
+      {group.links.map(([href, label]) =>
+        <Link key={href} href={href} aria-current={active(pathname, href) ? 'page' : undefined}>{t(label)}</Link>)}
+    </div>)}</nav>
+    <div className="sidebar-foot"><LangSwitch/><button onClick={signOut}>{t('action.signOut')}</button></div>
+  </>;
+}
+
 export function Shell({children}: {children: ReactNode}) {
   const pathname = usePathname() || '/';
   const isLogin = pathname.startsWith('/login');
   // The login page must not call the control API: a 401 there would redirect to itself.
-  if (isLogin) return <WorkspaceProvider enabled={false}><main className="content">{children}</main></WorkspaceProvider>;
-  return <WorkspaceProvider enabled>
+  if (isLogin) return <I18nProvider><main className="content">{children}</main></I18nProvider>;
+  return <I18nProvider><WorkspaceProvider enabled>
     <div className="shell">
       <aside className="sidebar">
         <Link className="brand" href="/">
@@ -46,15 +69,9 @@ export function Shell({children}: {children: ReactNode}) {
             <path d="m5.5 8 1.8 1.8L10.8 6" stroke="#fff" strokeWidth="1.6"/></svg></span>
           AgentGuard
         </Link>
-        <WorkspaceSwitch/>
-        <nav aria-label="Main">{NAV.map(group => <div className="nav-group" key={group.heading}>
-          <h4>{group.heading}</h4>
-          {group.links.map(([href, label]) =>
-            <Link key={href} href={href} aria-current={active(pathname, href) ? 'page' : undefined}>{label}</Link>)}
-        </div>)}</nav>
-        <div className="sidebar-foot"><button onClick={signOut}>Sign out</button></div>
+        <SidebarNav pathname={pathname}/>
       </aside>
       <main className="content">{children}</main>
     </div>
-  </WorkspaceProvider>;
+  </WorkspaceProvider></I18nProvider>;
 }

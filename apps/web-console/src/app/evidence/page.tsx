@@ -3,12 +3,14 @@ import Link from 'next/link';
 import {useCallback, useEffect, useState} from 'react';
 import {Badge, Empty, ErrorNote, PageHead} from '@/components/ui';
 import {control, explain, idempotencyKey} from '@/lib/control';
+import {useT} from '@/lib/i18n';
 import {regressionTone, shortId, when} from '@/lib/format';
 
 type RegressionCase = {id: string; finding_id: string; campaign_id: string; expected_block: boolean;
                        status: string; last_run_at: string | null; created_at: string};
 
 export default function RegressionCases() {
+  const {t} = useT();
   const [cases, setCases] = useState<RegressionCase[]>();
   const [error, setError] = useState('');
   const [queued, setQueued] = useState<Set<string>>(new Set());
@@ -27,22 +29,21 @@ export default function RegressionCases() {
   }
 
   return <>
-    <PageHead title="Regression cases"
-      description="Every confirmed leak is kept as a replayable exploit. Replay after a fix: passed means the agent no longer leaks, reopened means the weakness is back."
-      actions={<button onClick={load}>Refresh</button>}/>
+    <PageHead title={t('regr.title')} description={t('regr.desc')}
+      actions={<button onClick={load}>{t('common.refresh')}</button>}/>
     <ErrorNote message={error}/>
     {cases && (cases.length === 0
-      ? <div className="panel"><Empty title="No regression cases yet">They are created automatically from confirmed findings.</Empty></div>
+      ? <div className="panel"><Empty title={t('regr.none')}>{t('regr.noneBody')}</Empty></div>
       : <div className="table-wrap"><table>
-          <thead><tr><th>Case</th><th>Campaign</th><th>Status</th><th>Last replay</th><th>Created</th><th/></tr></thead>
+          <thead><tr><th>{t('col.case')}</th><th>{t('col.campaignCol')}</th><th>{t('common.status')}</th><th>{t('col.lastReplay')}</th><th>{t('col.created')}</th><th/></tr></thead>
           <tbody>{cases.map(row => <tr key={row.id}>
-            <td><code>{shortId(row.id)}</code><div className="hash">finding {shortId(row.finding_id)}</div></td>
+            <td><code>{shortId(row.id)}</code><div className="hash">{t('col.finding').toLowerCase()} {shortId(row.finding_id)}</div></td>
             <td><Link href={`/campaigns/${row.campaign_id}`}>{shortId(row.campaign_id)}</Link></td>
             <td><Badge tone={regressionTone(row.status)}>{row.status}</Badge></td>
-            <td>{row.last_run_at ? when(row.last_run_at) : 'never'}</td>
+            <td>{row.last_run_at ? when(row.last_run_at) : t('common.never')}</td>
             <td>{when(row.created_at)}</td>
-            <td>{queued.has(row.id) ? <span className="muted">Replay queued</span>
-              : <button onClick={() => replay(row.id)}>Replay exploit</button>}</td>
+            <td>{queued.has(row.id) ? <span className="muted">{t('regr.replayQueued')}</span>
+              : <button onClick={() => replay(row.id)}>{t('regr.replay')}</button>}</td>
           </tr>)}</tbody></table></div>)}
   </>;
 }

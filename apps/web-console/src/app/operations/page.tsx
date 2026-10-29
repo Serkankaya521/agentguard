@@ -2,6 +2,7 @@
 import {useEffect, useState} from 'react';
 import {ErrorNote, PageHead} from '@/components/ui';
 import {control, explain, Row} from '@/lib/control';
+import {useT} from '@/lib/i18n';
 
 function Facts({data}: {data?: Row}) {
   if (!data) return <p className="muted">—</p>;
@@ -11,6 +12,7 @@ function Facts({data}: {data?: Row}) {
 }
 
 export default function Operations() {
+  const {t} = useT();
   const [limits, setLimits] = useState<Row>();
   const [usage, setUsage] = useState<Row[]>([]);
   const [error, setError] = useState('');
@@ -19,15 +21,15 @@ export default function Operations() {
       .then(([l, u]) => { setLimits(l); setUsage(u); }).catch(e => setError(explain(e)));
   }, []);
   return <>
-    <PageHead title="Usage and limits" description="Your organization's quotas and daily usage."/>
+    <PageHead title={t('ops.title')} description={t('ops.desc')}/>
     <ErrorNote message={error}/>
     <div className="split">
-      <section className="panel"><h2>Limits</h2><Facts data={limits}/></section>
-      <section className="panel"><h2>Recent usage</h2>{usage.length
-        ? <table><thead><tr><th>Date</th><th>Metric</th><th className="num">Amount</th></tr></thead>
+      <section className="panel"><h2>{t('ops.limits')}</h2><Facts data={limits}/></section>
+      <section className="panel"><h2>{t('ops.recentUsage')}</h2>{usage.length
+        ? <table><thead><tr><th>{t('ops.date')}</th><th>{t('ops.metric')}</th><th className="num">{t('ops.amount')}</th></tr></thead>
             <tbody>{usage.slice(0, 30).map((row, i) => <tr key={i}><td>{String(row.usage_date)}</td>
               <td>{String(row.metric).replaceAll('_', ' ')}</td><td className="num">{String(row.amount)}</td></tr>)}</tbody></table>
-        : <p className="muted">No usage recorded yet.</p>}</section>
+        : <p className="muted">{t('ops.noUsage')}</p>}</section>
     </div>
   </>;
 }

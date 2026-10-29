@@ -1,5 +1,6 @@
 'use client';
 import {ReactNode} from 'react';
+import {useT} from '@/lib/i18n';
 import {useWorkspace} from '@/lib/workspace';
 
 export function PageHead({title, description, crumbs, actions}:
@@ -30,9 +31,9 @@ export function Empty({title, children}: {title: string; children?: ReactNode}) 
 /** Renders children only once a workspace is selected; explains what to do otherwise. */
 export function RequireWorkspace({children}: {children: (workspaceId: string) => ReactNode}) {
   const {workspaceId, loading, error, workspaces} = useWorkspace();
-  if (loading) return <p className="muted">Loading workspaces…</p>;
+  const {t} = useT();
+  if (loading) return <p className="muted">{t('common.loadingWorkspaces')}</p>;
   if (error) return <ErrorNote message={error}/>;
-  if (!workspaces.length) return <div className="panel"><Empty title="No workspace yet">
-    Create a workspace and an environment through the control API, then reload this page.</Empty></div>;
+  if (!workspaces.length) return <div className="panel"><Empty title={t('ws.none')}>{t('ws.noneBody')}</Empty></div>;
   return <>{children(workspaceId)}</>;
 }

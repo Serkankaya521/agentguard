@@ -1,6 +1,7 @@
 'use client';
 import {useMemo, useState} from 'react';
 import {Candidate} from '@/lib/control';
+import {useT} from '@/lib/i18n';
 import {score} from '@/lib/format';
 
 const VERIFIED = new Set(['target_canary', 'tool_observation']);
@@ -15,6 +16,7 @@ function fill(fitness: number): string {
 }
 
 export function EvolutionGrid({candidates}: {candidates: Candidate[]}) {
+  const {t} = useT();
   const generations = useMemo(() => {
     const map = new Map<number, Candidate[]>();
     for (const candidate of candidates) map.set(candidate.generation, [...(map.get(candidate.generation) || []), candidate]);
@@ -23,37 +25,37 @@ export function EvolutionGrid({candidates}: {candidates: Candidate[]}) {
   const firstHit = candidates.find(c => VERIFIED.has(c.evidence_level));
   const [selected, setSelected] = useState<Candidate | undefined>(firstHit);
 
-  if (!candidates.length) return <p className="muted">This run has not recorded any candidates yet.</p>;
+  if (!candidates.length) return <p className="muted">{t('evo.noCandidates')}</p>;
   return <div>
     <div className="evolution" role="group" aria-label="Attack candidates by generation">
       {generations.map(([generation, rows]) => {
         const best = Math.max(...rows.map(r => r.fitness));
         return <div className="evo-row" key={generation}>
-          <span>Gen {generation}</span>
+          <span>{t('evo.generation')} {generation}</span>
           <div className="evo-cells">{rows.map(candidate => {
             const hit = VERIFIED.has(candidate.evidence_level);
             return <button key={candidate.id} type="button" className={`evo-cell${hit ? ' hit' : ''}`}
               style={{background: fill(candidate.fitness)}} aria-pressed={selected?.id === candidate.id}
-              aria-label={`Generation ${generation}, score ${score(candidate.fitness)}${hit ? ', leaked canary' : ''}`}
-              title={`${score(candidate.fitness)}${hit ? ' · leaked canary' : ''}`}
+              aria-label={`${t('evo.generation')} ${generation}, ${score(candidate.fitness)}`}
+              title={`${score(candidate.fitness)}${hit ? ' · ' + t('evo.verified') : ''}`}
               onClick={() => setSelected(candidate)}/>;
           })}</div>
-          <span>best {score(best)}</span>
+          <span>{score(best)}</span>
         </div>;
       })}
     </div>
     <div className="evo-legend">
-      <span>Heuristic score</span><span>0</span><span className="evo-scale" aria-hidden="true"/><span>1</span>
-      <span><span className="evo-hit-key" aria-hidden="true"/>Agent leaked the canary (verified)</span>
+      <span>{t('evo.heuristic')}</span><span>0</span><span className="evo-scale" aria-hidden="true"/><span>1</span>
+      <span><span className="evo-hit-key" aria-hidden="true"/>{t('evo.leaked')}</span>
     </div>
     {selected && <div className="candidate-detail">
       <dl className="facts">
-        <dt>Generation</dt><dd>{selected.generation}</dd>
-        <dt>Mutations</dt><dd>{selected.lineage.length ? selected.lineage.join(' → ') : 'seed prompt'}</dd>
-        <dt>Score</dt><dd>{score(selected.fitness)}</dd>
-        <dt>Evidence</dt><dd>{VERIFIED.has(selected.evidence_level)
-          ? <strong style={{color: 'var(--breach)'}}>canary leaked — verified</strong> : 'heuristic only, not a finding'}</dd>
-        <dt>Response digest</dt><dd className="hash">{selected.response_hash}</dd>
+        <dt>{t('evo.generation')}</dt><dd>{selected.generation}</dd>
+        <dt>{t('evo.mutations')}</dt><dd>{selected.lineage.length ? selected.lineage.join(' → ') : t('evo.seed')}</dd>
+        <dt>{t('evo.score')}</dt><dd>{score(selected.fitness)}</dd>
+        <dt>{t('evo.evidence')}</dt><dd>{VERIFIED.has(selected.evidence_level)
+          ? <strong style={{color: 'var(--breach)'}}>{t('evo.verified')}</strong> : t('evo.heuristicOnly')}</dd>
+        <dt>{t('evo.responseDigest')}</dt><dd className="hash">{selected.response_hash}</dd>
       </dl>
       <pre>{selected.payload}{selected.payload_truncated ? ' …' : ''}</pre>
     </div>}

@@ -1,6 +1,5 @@
 import {ResourcePage} from '@/components/resource-page';
 
 export default function Page() {
-  return <ResourcePage title="Workspaces" path="v1/workspaces" scoped={false}
-    description="Workspaces separate teams, agents and permissions."/>;
+  return <ResourcePage titleKey="res.workspaces" descKey="res.workspacesDesc" path="v1/workspaces" scoped={false}/>;
 }

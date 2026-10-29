@@ -1,5 +1,6 @@
 'use client';
 import {useId} from 'react';
+import {useT} from '@/lib/i18n';
 
 type Point = {week: string; runs: number; found: number; resolved: number};
 
@@ -36,9 +37,10 @@ export function TrendChart({data}: {data: Point[]}) {
 }
 
 export function TrendLegend() {
+  const {t} = useT();
   return <div className="evo-legend" style={{marginTop: 10}}>
-    <span><span className="evo-hit-key" style={{background: 'var(--breach)'}}/>Findings found</span>
-    <span><span className="evo-hit-key" style={{background: 'var(--verified)'}}/>Resolved</span>
-    <span><span className="evo-hit-key" style={{background: 'var(--accent)', borderRadius: '50%'}}/>Runs</span>
+    <span><span className="evo-hit-key" style={{background: 'var(--breach)'}}/>{t('chart.found')}</span>
+    <span><span className="evo-hit-key" style={{background: 'var(--verified)'}}/>{t('chart.resolved')}</span>
+    <span><span className="evo-hit-key" style={{background: 'var(--accent)', borderRadius: '50%'}}/>{t('chart.runs')}</span>
   </div>;
 }

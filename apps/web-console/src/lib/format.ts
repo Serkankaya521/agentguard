@@ -14,11 +14,14 @@ export function when(value: string | null | undefined): string {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
+  // Read the chosen language directly so call sites don't all need the t() function.
+  let tr = false;
+  try { tr = localStorage.getItem('agentguard.lang') === 'tr'; } catch { /* ignore */ }
   const minutes = Math.round((Date.now() - date.getTime()) / 60000);
-  if (minutes >= 0 && minutes < 1) return 'just now';
-  if (minutes > 0 && minutes < 60) return `${minutes} min ago`;
-  if (minutes > 0 && minutes < 60 * 24) return `${Math.round(minutes / 60)} h ago`;
-  return date.toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'});
+  if (minutes >= 0 && minutes < 1) return tr ? 'az önce' : 'just now';
+  if (minutes > 0 && minutes < 60) return tr ? `${minutes} dk önce` : `${minutes} min ago`;
+  if (minutes > 0 && minutes < 60 * 24) return tr ? `${Math.round(minutes / 60)} sa önce` : `${Math.round(minutes / 60)} h ago`;
+  return date.toLocaleString(tr ? 'tr-TR' : undefined, {dateStyle: 'medium', timeStyle: 'short'});
 }
 
 export function duration(start: string | null, end: string | null): string {
@@ -27,12 +30,15 @@ export function duration(start: string | null, end: string | null): string {
   return seconds < 90 ? `${seconds}s` : `${Math.round(seconds / 60)} min`;
 }
 
-export function every(minutes: number | null | undefined): string {
-  if (!minutes) return 'not scheduled';
-  if (minutes % 10080 === 0) return minutes === 10080 ? 'weekly' : `every ${minutes / 10080} weeks`;
-  if (minutes % 1440 === 0) return minutes === 1440 ? 'daily' : `every ${minutes / 1440} days`;
-  if (minutes % 60 === 0) return minutes === 60 ? 'hourly' : `every ${minutes / 60} h`;
-  return `every ${minutes} min`;
+type T = (key: string, vars?: Record<string, string | number>) => string;
+
+export function every(minutes: number | null | undefined, t?: T): string {
+  const tr = t && t('unit.dayShort') === 'g';
+  if (!minutes) return tr ? 'zamanlanmamış' : 'not scheduled';
+  if (minutes % 10080 === 0) return minutes === 10080 ? (tr ? 'haftalık' : 'weekly') : (tr ? `${minutes / 10080} haftada bir` : `every ${minutes / 10080} weeks`);
+  if (minutes % 1440 === 0) return minutes === 1440 ? (tr ? 'günlük' : 'daily') : (tr ? `${minutes / 1440} günde bir` : `every ${minutes / 1440} days`);
+  if (minutes % 60 === 0) return minutes === 60 ? (tr ? 'saatlik' : 'hourly') : (tr ? `${minutes / 60} saatte bir` : `every ${minutes / 60} h`);
+  return tr ? `${minutes} dakikada bir` : `every ${minutes} min`;
 }
 
 export function origin(url: string | undefined): string {
@@ -70,41 +76,38 @@ export type Sla = {
 
 /** Age and remediation-SLA status for a finding. Closed findings report resolution time. */
 export function sla(severity: string | undefined, state: string, createdAt: string,
-                    updatedAt?: string): Sla {
+                    updatedAt?: string, t?: T): Sla {
+  const d = t ? t('unit.dayShort') : 'd';
+  const tr = d === 'g';
   const created = new Date(createdAt).getTime();
   const open = OPEN_STATES.has(state);
   const until = open ? Date.now() : new Date(updatedAt || createdAt).getTime();
   const ageDays = Math.max(0, Math.floor((until - created) / DAY));
   const dueDays = SLA_DAYS[(severity || '').toUpperCase()] ?? null;
   if (!open) return {tracked: false, open, dueDays, ageDays, remainingDays: null, breached: false,
-                     tone: 'verified', label: `closed in ${ageDays}d`};
+                     tone: 'verified', label: tr ? `${ageDays}${d} içinde kapandı` : `closed in ${ageDays}${d}`};
   if (dueDays === null) return {tracked: false, open, dueDays, ageDays, remainingDays: null, breached: false,
-                                tone: '', label: `${ageDays}d old`};
+                                tone: '', label: tr ? `${ageDays}${d}` : `${ageDays}${d} old`};
   const remainingDays = dueDays - ageDays;
   const breached = remainingDays < 0;
   const tone: Tone = breached ? 'breach' : remainingDays <= Math.ceil(dueDays / 3) ? 'signal' : '';
-  const label = breached ? `SLA breached ${-remainingDays}d` : `${remainingDays}d to SLA`;
+  const label = breached ? (tr ? `SLA ${-remainingDays}${d} aşıldı` : `SLA breached ${-remainingDays}${d}`)
+    : (tr ? `SLA'ya ${remainingDays}${d}` : `${remainingDays}${d} to SLA`);
   return {tracked: true, open, dueDays, ageDays, remainingDays, breached, tone, label};
 }
 
-const ACTION_LABEL: Record<string, string> = {
-  'finding.create': 'Finding created', 'finding.transition': 'State changed',
-  'finding.write': 'Finding updated', 'campaign.run.report.export': 'Report exported',
+const ACTION_KEY: Record<string, string> = {
+  'finding.create': 'audit.create', 'finding.transition': 'audit.transition',
+  'finding.write': 'audit.write', 'campaign.run.report.export': 'audit.export',
 };
-export function auditLabel(action: string): string {
-  return ACTION_LABEL[action] || action.replaceAll('.', ' ');
+export function auditLabel(action: string, t: T): string {
+  const key = ACTION_KEY[action];
+  return key ? t(key) : action.replaceAll('.', ' ');
 }
 
-export const VERDICT: Record<Verdict, {tone: 'breach' | 'verified' | 'signal'; title: string; detail: string}> = {
-  CRITICAL: {tone: 'breach', title: 'Critical — the agent leaked a protected value',
-             detail: 'A server-side canary appeared in the agent\'s response. Restrict its data access and fix before replaying.'},
-  HIGH: {tone: 'breach', title: 'High — verified finding is open', detail: 'Target-side evidence confirmed a weakness.'},
-  MEDIUM: {tone: 'breach', title: 'Medium — verified finding is open', detail: 'Target-side evidence confirmed a weakness.'},
-  LOW: {tone: 'breach', title: 'Low — verified finding is open', detail: 'Target-side evidence confirmed a weakness.'},
-  RESOLVED: {tone: 'verified', title: 'Resolved — every finding passed its regression replay',
-             detail: 'The original exploit payloads no longer leak the canary.'},
-  SIGNAL: {tone: 'signal', title: 'No verified leak, but strong signals',
-           detail: 'Some candidates scored high on heuristics. They are not findings; review them and widen canary coverage.'},
-  CLEAR: {tone: 'verified', title: 'No verified findings',
-          detail: 'No canary disclosure within this run\'s budget. That is not proof the agent is safe.'},
+// Verdict text lives in the i18n dictionary under verdict.<code>.{t,d}; only the
+// color tone stays here since it is presentation, not copy.
+export const VERDICT_TONE: Record<Verdict, 'breach' | 'verified' | 'signal'> = {
+  CRITICAL: 'breach', HIGH: 'breach', MEDIUM: 'breach', LOW: 'breach',
+  RESOLVED: 'verified', SIGNAL: 'signal', CLEAR: 'verified',
 };

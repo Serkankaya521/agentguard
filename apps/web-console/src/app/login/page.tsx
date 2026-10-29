@@ -1,12 +1,9 @@
 'use client';
 import {FormEvent, useState} from 'react';
-
-const ERRORS: Record<string, string> = {
-  INVALID_TOKEN: 'That token is not the right length. Paste the full service token.',
-  ORIGIN_DENIED: 'This console is not allowed to sign in from this address.',
-};
+import {useT} from '@/lib/i18n';
 
 export default function Login() {
+  const {t} = useT();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -17,17 +14,17 @@ export default function Login() {
                                                   body: JSON.stringify({token})});
     if (response.ok) { location.assign('/'); return; }
     const code = (await response.json().catch(() => ({}))).code;
-    setError(ERRORS[code] || `Sign-in failed (${code || response.status}).`);
+    setError(`${t('login.signIn')}: ${code || response.status}`);
     setBusy(false);
   }
   return <div className="login panel">
-    <h1>Sign in to AgentGuard</h1>
-    <p className="muted">Use your access token. It is kept in a secure, HTTP-only cookie and is not readable by this page.</p>
+    <h1>{t('login.title')}</h1>
+    <p className="muted">{t('login.note')}</p>
     <form onSubmit={submit}>
-      <label className="field">Access token
+      <label className="field">{t('login.token')}
         <input name="token" type="password" minLength={32} maxLength={256} autoComplete="off" required autoFocus/></label>
       {error && <p className="notice error" role="alert">{error}</p>}
-      <button className="primary" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+      <button className="primary" disabled={busy}>{busy ? t('login.signingIn') : t('login.signIn')}</button>
     </form>
   </div>;
 }

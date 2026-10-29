@@ -3,21 +3,24 @@ import Link from 'next/link';
 import {useCallback, useEffect, useState} from 'react';
 import {Badge, Empty, ErrorNote, PageHead, RequireWorkspace} from '@/components/ui';
 import {control, explain, Finding} from '@/lib/control';
+import {useT} from '@/lib/i18n';
 import {findingTone, shortId, sla, when} from '@/lib/format';
 
 // Mirrors the server's allowed workflow so only valid buttons are shown; the API still enforces it.
-const NEXT: Record<string, [string, string][]> = {
-  SUSPECTED: [['VALIDATING', 'Start validation'], ['FALSE_POSITIVE', 'Mark false positive']],
-  VALIDATING: [['CONFIRMED', 'Confirm'], ['FALSE_POSITIVE', 'Mark false positive']],
-  CONFIRMED: [['FIX_PROPOSED', 'Fix proposed'], ['FALSE_POSITIVE', 'Mark false positive']],
-  FIX_PROPOSED: [['RETESTING', 'Start retest']],
-  REOPENED: [['FIX_PROPOSED', 'Fix proposed'], ['RETESTING', 'Start retest']],
-  FALSE_POSITIVE: [['REOPENED', 'Reopen']],
+// Second element is an i18n key.
+export const NEXT: Record<string, [string, string][]> = {
+  SUSPECTED: [['VALIDATING', 'tr.validate'], ['FALSE_POSITIVE', 'tr.falsePositive']],
+  VALIDATING: [['CONFIRMED', 'tr.confirm'], ['FALSE_POSITIVE', 'tr.falsePositive']],
+  CONFIRMED: [['FIX_PROPOSED', 'tr.fixProposed'], ['FALSE_POSITIVE', 'tr.falsePositive']],
+  FIX_PROPOSED: [['RETESTING', 'tr.startRetest']],
+  REOPENED: [['FIX_PROPOSED', 'tr.fixProposed'], ['RETESTING', 'tr.startRetest']],
+  FALSE_POSITIVE: [['REOPENED', 'tr.reopen']],
 };
 const SEVERITY_RANK: Record<string, number> = {CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3};
 const label = (state: string) => state.toLowerCase().replaceAll('_', ' ');
 
 function FindingTable({workspaceId}: {workspaceId: string}) {
+  const {t} = useT();
   const [rows, setRows] = useState<Finding[]>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
@@ -38,7 +41,7 @@ function FindingTable({workspaceId}: {workspaceId: string}) {
     } catch (e) { setError(explain(e)); } finally { setBusy(''); }
   }
 
-  if (!rows) return error ? <ErrorNote message={error}/> : <p className="muted">Loading…</p>;
+  if (!rows) return error ? <ErrorNote message={error}/> : <p className="muted">{t('common.loading')}</p>;
   const closed = (f: Finding) => f.state === 'RESOLVED_VERIFIED' || f.state === 'FALSE_POSITIVE';
   const visible = rows.filter(f => showClosed || !closed(f)).sort((a, b) =>
     Number(closed(a)) - Number(closed(b)) ||
@@ -49,38 +52,43 @@ function FindingTable({workspaceId}: {workspaceId: string}) {
     <ErrorNote message={error}/>
     <label className="field check" style={{marginBottom: 12}}>
       <input type="checkbox" checked={showClosed} onChange={e => setShowClosed(e.target.checked)}/>
-      Show resolved and false positives ({rows.filter(closed).length})
+      {t('findings.showClosed', {n: rows.filter(closed).length})}
     </label>
     {visible.length === 0
-      ? <div className="panel"><Empty title={rows.length ? 'No open findings' : 'No findings yet'}>
-          {rows.length ? 'Every finding is resolved or dismissed.' : 'Findings appear when a campaign run captures target-side evidence.'}
+      ? <div className="panel"><Empty title={rows.length ? t('findings.noOpen') : t('findings.noneYet')}>
+          {rows.length ? t('findings.allClosed') : t('findings.appearWhen')}
         </Empty></div>
       : <div className="table-wrap"><table>
-          <thead><tr><th>Finding</th><th>Severity</th><th>State</th><th>SLA</th><th>Source</th><th>Next step</th></tr></thead>
+          <thead><tr><th>{t('col.finding')}</th><th>{t('col.severity')}</th><th>{t('col.state')}</th><th>{t('col.sla')}</th><th>{t('col.source')}</th><th>{t('col.nextStep')}</th></tr></thead>
           <tbody>{visible.map(f => {
-            const status = sla(f.document.severity, f.state, f.created_at, f.updated_at);
+            const status = sla(f.document.severity, f.state, f.created_at, f.updated_at, t);
             return <tr key={f.id}>
-              <td><Link href={`/findings/${f.id}`}><strong>{f.document.title || 'Finding'}</strong></Link>
+              <td><Link href={`/findings/${f.id}`}><strong>{f.document.title || t('col.finding')}</strong></Link>
                 <div className="hash">{shortId(f.id)} · {when(f.created_at)}</div></td>
               <td>{f.document.severity ? <Badge tone={SEVERITY_RANK[f.document.severity] <= 1 ? 'breach' : 'signal'}>{f.document.severity.toLowerCase()}</Badge> : '—'}</td>
               <td><Badge tone={findingTone(f.state)}>{label(f.state)}</Badge></td>
               <td>{status.tone ? <Badge tone={status.tone}>{status.label}</Badge> : <span className="muted">{status.label}</span>}</td>
               <td>{f.document.campaign_id && f.document.run_id
-                ? <Link href={`/campaigns/${f.document.campaign_id}/runs/${f.document.run_id}`}>Run {shortId(f.document.run_id)}</Link>
-                : 'manual'}</td>
-              <td><div className="actions">{(NEXT[f.state] || []).map(([state, text]) =>
+                ? <Link href={`/campaigns/${f.document.campaign_id}/runs/${f.document.run_id}`}>{t('col.run')} {shortId(f.document.run_id)}</Link>
+                : t('common.manual')}</td>
+              <td><div className="actions">{(NEXT[f.state] || []).map(([state, key]) =>
                 <button key={state} disabled={busy === f.id} className={state === 'FALSE_POSITIVE' ? 'danger' : ''}
-                  onClick={() => transition(f, state)}>{text}</button>)}
-                {f.state === 'RETESTING' && <Link href={`/findings/${f.id}`} className="muted">Replay to close →</Link>}
+                  onClick={() => transition(f, state)}>{t(key)}</button>)}
+                {f.state === 'RETESTING' && <Link href={`/findings/${f.id}`} className="muted">{t('findings.replayToClose')}</Link>}
               </div></td>
             </tr>;
           })}</tbody></table></div>}
   </>;
 }
 
+function FindingsHead() {
+  const {t} = useT();
+  return <PageHead title={t('findings.title')} description={t('findings.desc')}/>;
+}
+
 export default function Findings() {
   return <>
-    <PageHead title="Findings" description="Weaknesses confirmed by target-side evidence, and where each one is in the fix cycle."/>
+    <FindingsHead/>
     <RequireWorkspace>{workspaceId => <FindingTable key={workspaceId} workspaceId={workspaceId}/>}</RequireWorkspace>
   </>;
 }
