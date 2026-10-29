@@ -35,6 +35,7 @@ AgentGuard_Audit_Report.pdf
 .DS_Store
 Thumbs.db
 
-# Local Claude Code / spec-kit tooling (not shared)
-.claude/
+# Local Claude Code / spec-kit tooling (not shared); share only settings.json
+.claude/*
+!.claude/settings.json
 .specify/
