@@ -96,6 +96,20 @@ textarea { min-height: 96px; resize: vertical; font-family: var(--mono); font-si
 .figure.breach b { color: var(--breach); }
 .figure.verified b { color: var(--verified); }
 
+/* Posture header */
+.posture { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 16px; align-items: stretch; }
+.posture-score { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 18px 20px; display: flex; flex-direction: column; justify-content: center; gap: 2px; border-left: 4px solid var(--muted); }
+.posture-score.verified { border-left-color: var(--verified); }
+.posture-score.signal { border-left-color: var(--signal); }
+.posture-score.breach { border-left-color: var(--breach); }
+.posture-num { font-size: 46px; font-weight: 650; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.posture-score.verified .posture-num { color: var(--verified); }
+.posture-score.signal .posture-num { color: var(--signal); }
+.posture-score.breach .posture-num { color: var(--breach); }
+.posture-grade { font-weight: 600; font-size: 14px; }
+.posture-figures { margin: 0; }
+@media (max-width: 760px) { .posture { grid-template-columns: 1fr; } }
+
 /* Verdict band — the run's headline */
 .verdict { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-radius: var(--radius); border: 1px solid; margin-bottom: 20px; }
 .verdict strong { font-size: 16px; }

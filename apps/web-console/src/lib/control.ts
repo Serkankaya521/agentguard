@@ -117,4 +117,7 @@ export type Overview = {
   open_findings_by_severity: Record<string, number>;
   regressions: Record<string, number>;
   recent_runs: (Run & {campaign_name: string})[];
+  posture: {score: number; open_findings: number; mttr_days: number | null; resolved_total: number;
+            sla_compliance: number | null; sla_within: number; sla_breached: number};
+  trend: {week: string; runs: number; found: number; resolved: number}[];
 };

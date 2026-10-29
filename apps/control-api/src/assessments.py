@@ -165,12 +165,52 @@ def install_assessment_routes(app, database: Database):
                 'r.findings_created,r.best_score,r.created_at,r.completed_at '
                 'FROM platform.campaign_runs r JOIN platform.campaigns c ON c.tenant_id=r.tenant_id AND c.id=r.campaign_id '
                 'WHERE c.workspace_id=%s ORDER BY r.created_at DESC LIMIT 8', (workspace_id,)).fetchall()
+            # Remediation performance: resolution time vs severity SLA (critical 7d … low 90d).
+            remediation = conn.execute(
+                "SELECT count(*) AS resolved, "
+                "coalesce(avg(extract(epoch FROM (updated_at-created_at))/86400),0) AS mttr_days, "
+                "count(*) FILTER (WHERE extract(epoch FROM (updated_at-created_at))/86400 <= "
+                "  CASE upper(coalesce(document->>'severity','')) "
+                "    WHEN 'CRITICAL' THEN 7 WHEN 'HIGH' THEN 30 WHEN 'MEDIUM' THEN 60 WHEN 'LOW' THEN 90 ELSE 1e9 END) AS within_sla "
+                "FROM platform.findings WHERE workspace_id=%s AND state='RESOLVED_VERIFIED'",
+                (workspace_id,)).fetchone()
+            # 8-week activity trend, each series bucketed by ISO week.
+            trend_runs = conn.execute(
+                "SELECT to_char(date_trunc('week',r.created_at),'YYYY-MM-DD') AS week, count(*) AS n, "
+                "coalesce(sum(r.findings_created),0) AS found "
+                'FROM platform.campaign_runs r JOIN platform.campaigns c ON c.tenant_id=r.tenant_id AND c.id=r.campaign_id '
+                "WHERE c.workspace_id=%s AND r.created_at >= date_trunc('week',clock_timestamp()) - interval '7 weeks' "
+                'GROUP BY 1', (workspace_id,)).fetchall()
+            trend_resolved = conn.execute(
+                "SELECT to_char(date_trunc('week',updated_at),'YYYY-MM-DD') AS week, count(*) AS n "
+                "FROM platform.findings WHERE workspace_id=%s AND state='RESOLVED_VERIFIED' "
+                "AND updated_at >= date_trunc('week',clock_timestamp()) - interval '7 weeks' GROUP BY 1",
+                (workspace_id,)).fetchall()
         open_by_severity: dict[str, int] = {}
         by_state: dict[str, int] = {}
         for row in findings:
             by_state[row['state']] = by_state.get(row['state'], 0) + row['n']
             if row['state'] not in ('RESOLVED_VERIFIED', 'FALSE_POSITIVE'):
                 open_by_severity[row['severity']] = open_by_severity.get(row['severity'], 0) + row['n']
+        # Build 8 contiguous weekly buckets so the UI never has to guess gaps.
+        from datetime import date, timedelta
+        monday = date.today() - timedelta(days=date.today().weekday())
+        weeks = [(monday - timedelta(weeks=offset)).isoformat() for offset in range(7, -1, -1)]
+        runs_by_week = {row['week']: row for row in trend_runs}
+        resolved_by_week = {row['week']: row['n'] for row in trend_resolved}
+        trend = [{'week': week, 'runs': runs_by_week.get(week, {}).get('n', 0),
+                  'found': runs_by_week.get(week, {}).get('found', 0),
+                  'resolved': resolved_by_week.get(week, 0)} for week in weeks]
+
+        open_total = sum(open_by_severity.values())
+        resolved_total = int(remediation['resolved'])
+        within = int(remediation['within_sla'])
+        sla_rate = round(within / resolved_total, 3) if resolved_total else None
+        # Posture score (0–100): starts at 100, penalised by open findings weighted by
+        # severity, softened by SLA compliance. Deterministic, explainable, bounded.
+        weights = {'CRITICAL': 25, 'HIGH': 12, 'MEDIUM': 5, 'LOW': 2}
+        penalty = sum(weights.get(sev.upper(), 4) * n for sev, n in open_by_severity.items())
+        posture = max(0, min(100, 100 - penalty))
         return {
             'campaigns': dict(campaigns),
             'runs_30d': dict(runs),
@@ -178,4 +218,11 @@ def install_assessment_routes(app, database: Database):
             'open_findings_by_severity': open_by_severity,
             'regressions': {row['status']: row['n'] for row in regressions},
             'recent_runs': recent,
+            'posture': {
+                'score': posture, 'open_findings': open_total,
+                'mttr_days': round(float(remediation['mttr_days']), 1) if resolved_total else None,
+                'resolved_total': resolved_total, 'sla_compliance': sla_rate,
+                'sla_within': within, 'sla_breached': resolved_total - within,
+            },
+            'trend': trend,
         }
