@@ -57,6 +57,44 @@ export function regressionTone(status: string | null | undefined): Tone {
   return status === 'passed' ? 'verified' : status === 'reopened' ? 'breach' : '';
 }
 
+// Remediation SLA by severity, in days. Industry-standard shape (critical fastest).
+// A single place to tune; later this can come from a tenant policy.
+const SLA_DAYS: Record<string, number> = {CRITICAL: 7, HIGH: 30, MEDIUM: 60, LOW: 90};
+const DAY = 86_400_000;
+const OPEN_STATES = new Set(['SUSPECTED', 'VALIDATING', 'CONFIRMED', 'FIX_PROPOSED', 'RETESTING', 'REOPENED']);
+
+export type Sla = {
+  tracked: boolean; open: boolean; dueDays: number | null; ageDays: number;
+  remainingDays: number | null; breached: boolean; tone: Tone; label: string;
+};
+
+/** Age and remediation-SLA status for a finding. Closed findings report resolution time. */
+export function sla(severity: string | undefined, state: string, createdAt: string,
+                    updatedAt?: string): Sla {
+  const created = new Date(createdAt).getTime();
+  const open = OPEN_STATES.has(state);
+  const until = open ? Date.now() : new Date(updatedAt || createdAt).getTime();
+  const ageDays = Math.max(0, Math.floor((until - created) / DAY));
+  const dueDays = SLA_DAYS[(severity || '').toUpperCase()] ?? null;
+  if (!open) return {tracked: false, open, dueDays, ageDays, remainingDays: null, breached: false,
+                     tone: 'verified', label: `closed in ${ageDays}d`};
+  if (dueDays === null) return {tracked: false, open, dueDays, ageDays, remainingDays: null, breached: false,
+                                tone: '', label: `${ageDays}d old`};
+  const remainingDays = dueDays - ageDays;
+  const breached = remainingDays < 0;
+  const tone: Tone = breached ? 'breach' : remainingDays <= Math.ceil(dueDays / 3) ? 'signal' : '';
+  const label = breached ? `SLA breached ${-remainingDays}d` : `${remainingDays}d to SLA`;
+  return {tracked: true, open, dueDays, ageDays, remainingDays, breached, tone, label};
+}
+
+const ACTION_LABEL: Record<string, string> = {
+  'finding.create': 'Finding created', 'finding.transition': 'State changed',
+  'finding.write': 'Finding updated', 'campaign.run.report.export': 'Report exported',
+};
+export function auditLabel(action: string): string {
+  return ACTION_LABEL[action] || action.replaceAll('.', ' ');
+}
+
 export const VERDICT: Record<Verdict, {tone: 'breach' | 'verified' | 'signal'; title: string; detail: string}> = {
   CRITICAL: {tone: 'breach', title: 'Critical — the agent leaked a protected value',
              detail: 'A server-side canary appeared in the agent\'s response. Restrict its data access and fix before replaying.'},

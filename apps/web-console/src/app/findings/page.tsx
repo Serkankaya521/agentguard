@@ -3,7 +3,7 @@ import Link from 'next/link';
 import {useCallback, useEffect, useState} from 'react';
 import {Badge, Empty, ErrorNote, PageHead, RequireWorkspace} from '@/components/ui';
 import {control, explain, Finding} from '@/lib/control';
-import {findingTone, shortId, when} from '@/lib/format';
+import {findingTone, shortId, sla, when} from '@/lib/format';
 
 // Mirrors the server's allowed workflow so only valid buttons are shown; the API still enforces it.
 const NEXT: Record<string, [string, string][]> = {
@@ -56,21 +56,25 @@ function FindingTable({workspaceId}: {workspaceId: string}) {
           {rows.length ? 'Every finding is resolved or dismissed.' : 'Findings appear when a campaign run captures target-side evidence.'}
         </Empty></div>
       : <div className="table-wrap"><table>
-          <thead><tr><th>Finding</th><th>Severity</th><th>State</th><th>Source</th><th>Found</th><th>Next step</th></tr></thead>
-          <tbody>{visible.map(f => <tr key={f.id}>
-            <td><strong>{f.document.title || 'Finding'}</strong><div className="hash">{shortId(f.id)}</div></td>
-            <td>{f.document.severity ? <Badge tone={SEVERITY_RANK[f.document.severity] <= 1 ? 'breach' : 'signal'}>{f.document.severity.toLowerCase()}</Badge> : '—'}</td>
-            <td><Badge tone={findingTone(f.state)}>{label(f.state)}</Badge></td>
-            <td>{f.document.campaign_id && f.document.run_id
-              ? <Link href={`/campaigns/${f.document.campaign_id}/runs/${f.document.run_id}`}>Run {shortId(f.document.run_id)}</Link>
-              : 'manual'}</td>
-            <td>{when(f.created_at)}</td>
-            <td><div className="actions">{(NEXT[f.state] || []).map(([state, text]) =>
-              <button key={state} disabled={busy === f.id} className={state === 'FALSE_POSITIVE' ? 'danger' : ''}
-                onClick={() => transition(f, state)}>{text}</button>)}
-              {f.state === 'RETESTING' && <span className="muted">Replay the regression case to close it.</span>}
-            </div></td>
-          </tr>)}</tbody></table></div>}
+          <thead><tr><th>Finding</th><th>Severity</th><th>State</th><th>SLA</th><th>Source</th><th>Next step</th></tr></thead>
+          <tbody>{visible.map(f => {
+            const status = sla(f.document.severity, f.state, f.created_at, f.updated_at);
+            return <tr key={f.id}>
+              <td><Link href={`/findings/${f.id}`}><strong>{f.document.title || 'Finding'}</strong></Link>
+                <div className="hash">{shortId(f.id)} · {when(f.created_at)}</div></td>
+              <td>{f.document.severity ? <Badge tone={SEVERITY_RANK[f.document.severity] <= 1 ? 'breach' : 'signal'}>{f.document.severity.toLowerCase()}</Badge> : '—'}</td>
+              <td><Badge tone={findingTone(f.state)}>{label(f.state)}</Badge></td>
+              <td>{status.tone ? <Badge tone={status.tone}>{status.label}</Badge> : <span className="muted">{status.label}</span>}</td>
+              <td>{f.document.campaign_id && f.document.run_id
+                ? <Link href={`/campaigns/${f.document.campaign_id}/runs/${f.document.run_id}`}>Run {shortId(f.document.run_id)}</Link>
+                : 'manual'}</td>
+              <td><div className="actions">{(NEXT[f.state] || []).map(([state, text]) =>
+                <button key={state} disabled={busy === f.id} className={state === 'FALSE_POSITIVE' ? 'danger' : ''}
+                  onClick={() => transition(f, state)}>{text}</button>)}
+                {f.state === 'RETESTING' && <Link href={`/findings/${f.id}`} className="muted">Replay to close →</Link>}
+              </div></td>
+            </tr>;
+          })}</tbody></table></div>}
   </>;
 }
 

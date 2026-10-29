@@ -365,6 +365,13 @@ def test_campaign_schedule_recovery_and_canary_to_regression(platform):
     overview=client.get(f'/v1/assessments/overview?workspace_id={workspace}',headers=headers).json()
     assert overview['campaigns']['total']>=1 and overview['regressions'].get('passed',0)>=1
     assert any(row['id']==str(run_id) for row in overview['recent_runs'])
+    detail=client.get(f'/v1/findings/{finding_id}/detail',headers=headers).json()
+    assert detail['finding']['state']=='RESOLVED_VERIFIED'
+    assert detail['origin']['run_id']==str(run_id) and detail['origin']['candidate']['evidence_level']=='target_canary'
+    assert 'TARGET-CANARY-42' not in detail['origin']['candidate']['payload']
+    assert detail['regression']['status']=='passed'
+    assert {row['action'] for row in detail['timeline']} >= {'finding.transition'}
+    assert client.get(f'/v1/findings/{uuid4()}/detail',headers=headers).status_code==404
 
 
 def test_new_tables_remain_cross_tenant_and_audit_chain_is_complete(platform):

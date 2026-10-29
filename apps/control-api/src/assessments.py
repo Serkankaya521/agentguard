@@ -75,7 +75,46 @@ def console_view(bundle: dict) -> dict:
     return view
 
 
+def load_finding_detail(conn, finding_id: UUID) -> dict:
+    finding = conn.execute(
+        'SELECT id,workspace_id,environment_id,state,version,document,created_at,updated_at '
+        'FROM platform.findings WHERE id=%s', (finding_id,)).fetchone()
+    if not finding:
+        raise HTTPException(404, 'NOT_FOUND')
+    # State history comes from the tamper-evident audit chain (tenant-scoped by RLS).
+    timeline = conn.execute(
+        'SELECT action,identity_id,correlation_id,occurred_at,record_hash '
+        'FROM platform.audit WHERE resource_id=%s ORDER BY id', (finding_id,)).fetchall()
+    regression = conn.execute(
+        'SELECT id AS case_id,status,expected_block,last_run_at,created_at '
+        'FROM platform.regression_cases WHERE finding_id=%s', (finding_id,)).fetchone()
+    # The confirming attack: the candidate that produced this finding is the reproduction.
+    candidate = conn.execute(
+        'SELECT c.run_id,c.generation,c.lineage,c.payload,c.response_hash,c.fitness,c.evidence_level,'
+        'r.campaign_id FROM platform.campaign_candidates c '
+        'JOIN platform.campaign_runs r ON r.tenant_id=c.tenant_id AND r.id=c.run_id '
+        'WHERE c.finding_id=%s ORDER BY c.created_at LIMIT 1', (finding_id,)).fetchone()
+    return {
+        'finding': dict(finding),
+        'timeline': [dict(row) for row in timeline],
+        'regression': dict(regression) if regression else None,
+        'origin': {
+            'run_id': candidate['run_id'], 'campaign_id': candidate['campaign_id'],
+            'candidate': {'generation': candidate['generation'], 'lineage': candidate['lineage'],
+                          'payload': candidate['payload'], 'response_hash': candidate['response_hash'],
+                          'fitness': float(candidate['fitness']), 'evidence_level': candidate['evidence_level']},
+        } if candidate else None,
+    }
+
+
 def install_assessment_routes(app, database: Database):
+    @app.get('/v1/findings/{finding_id}/detail')
+    def finding_detail(finding_id: UUID, request: Request, authorization: str | None = Header(None)):
+        with database.authenticated(authorization) as (conn, principal):
+            detail = load_finding_detail(conn, finding_id)
+            database.authorize(principal, 'tenant.read', str(detail['finding']['workspace_id']))
+            return detail
+
     @app.get('/v1/campaigns/{campaign_id}/runs/{run_id}')
     def run_detail(campaign_id: UUID, run_id: UUID, request: Request,
                    authorization: str | None = Header(None)):

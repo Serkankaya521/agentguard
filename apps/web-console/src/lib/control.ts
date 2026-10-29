@@ -97,6 +97,19 @@ export type RunView = {
              created_at: string} | null;
 };
 
+export type TimelineEntry = {action: string; identity_id: string; correlation_id: string;
+                             occurred_at: string; record_hash: string | null};
+
+export type FindingDetail = {
+  finding: Finding & {workspace_id: string; environment_id: string};
+  timeline: TimelineEntry[];
+  regression: {case_id: string; status: string; expected_block: boolean; last_run_at: string | null;
+               created_at: string} | null;
+  origin: {run_id: string; campaign_id: string;
+           candidate: {generation: number; lineage: string[]; payload: string; response_hash: string;
+                       fitness: number; evidence_level: string}} | null;
+};
+
 export type Overview = {
   campaigns: {total: number; active: number};
   runs_30d: {total: number; completed: number; failed: number; requests: number; last_completed_at: string | null};
