@@ -1,3 +1,33 @@
 'use client';
-import {useEffect,useState} from 'react';import {control,Row} from '@/lib/control';
-export default function Page(){const [limits,setLimits]=useState<Row>(),[usage,setUsage]=useState<Row[]>([]),[billing,setBilling]=useState<Row[]>([]),[error,setError]=useState('');useEffect(()=>{Promise.all([control<Row>('v1/platform/limits'),control<Row[]>('v1/platform/usage'),control<Row[]>('v1/billing/usage')]).then(([l,u,b])=>{setLimits(l);setUsage(u);setBilling(b)}).catch(e=>setError(e.message))},[]);return <><div className="eyebrow">Platform operations</div><h1>Quotas, usage and billing</h1><p className="lede">Tenant-scoped operational state. Runtime enforcement remains independent.</p>{error&&<p className="error">{error}</p>}<div className="grid"><div className="card"><h2>Limits</h2><pre>{JSON.stringify(limits,null,2)}</pre></div><div className="card"><h2>Billing totals</h2><pre>{JSON.stringify(billing,null,2)}</pre></div></div><h2>Daily usage</h2><pre className="card">{JSON.stringify(usage,null,2)}</pre></>}
+import {useEffect, useState} from 'react';
+import {ErrorNote, PageHead} from '@/components/ui';
+import {control, explain, Row} from '@/lib/control';
+
+function Facts({data}: {data?: Row}) {
+  if (!data) return <p className="muted">—</p>;
+  return <dl className="facts">{Object.entries(data).filter(([k]) => k !== 'tenant_id').map(([key, value]) =>
+    <div key={key} style={{display: 'contents'}}><dt>{key.replaceAll('_', ' ')}</dt>
+      <dd>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd></div>)}</dl>;
+}
+
+export default function Operations() {
+  const [limits, setLimits] = useState<Row>();
+  const [usage, setUsage] = useState<Row[]>([]);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    Promise.all([control<Row>('v1/platform/limits'), control<Row[]>('v1/platform/usage')])
+      .then(([l, u]) => { setLimits(l); setUsage(u); }).catch(e => setError(explain(e)));
+  }, []);
+  return <>
+    <PageHead title="Usage and limits" description="Your organization's quotas and daily usage."/>
+    <ErrorNote message={error}/>
+    <div className="split">
+      <section className="panel"><h2>Limits</h2><Facts data={limits}/></section>
+      <section className="panel"><h2>Recent usage</h2>{usage.length
+        ? <table><thead><tr><th>Date</th><th>Metric</th><th className="num">Amount</th></tr></thead>
+            <tbody>{usage.slice(0, 30).map((row, i) => <tr key={i}><td>{String(row.usage_date)}</td>
+              <td>{String(row.metric).replaceAll('_', ' ')}</td><td className="num">{String(row.amount)}</td></tr>)}</tbody></table>
+        : <p className="muted">No usage recorded yet.</p>}</section>
+    </div>
+  </>;
+}

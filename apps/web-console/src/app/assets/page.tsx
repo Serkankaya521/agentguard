@@ -1,1 +1,6 @@
-'use client';import {useState} from 'react';import {ResourcePage} from '@/components/resource-page';export default function Page(){const [workspace,setWorkspace]=useState('');return <><div className="toolbar"><input value={workspace} onChange={e=>setWorkspace(e.target.value)} placeholder="Workspace UUID"/></div>{workspace?<ResourcePage title="Assets" path={`v1/assets?workspace_id=${encodeURIComponent(workspace)}`} description="Registered agents, models, MCP servers and tools. Capability metadata is managed by the Control API."/>:<p className="muted">Enter a workspace UUID to load tenant-scoped assets.</p>}</>}
+import {ResourcePage} from '@/components/resource-page';
+
+export default function Page() {
+  return <ResourcePage title="Assets" path="v1/assets" scoped={true}
+    description="Agents, models, MCP servers and tools registered in this workspace."/>;
+}
