@@ -32,6 +32,7 @@ from trajectory.incremental_state import TrajectoryStore
 
 from bounded import DetectorRunner, DetectorSignal, max_severity  # packages/detectors/src
 from runtime import default_detectors  # packages/detectors/src
+from egress import scan_response  # packages/detectors/src (B-R2 egress pass)
 
 from capability_registry import CapabilityRegistry, CapabilityResolution  # packages/policy/src
 from evaluator import evaluate  # packages/policy/src (pure)
@@ -164,6 +165,12 @@ class RuntimeGatewayPipeline:
         self._publisher.publish_decision(event, runtime_decision)
         self._analytics_publisher.publish_event(event, runtime_decision)
         return runtime_decision
+
+    def scan_egress(self, response: str, *, known_secrets=(), request: str = "") -> list[DetectorSignal]:
+        """B-R2 egress pass: scan a tool/agent response for secret leakage and return
+        signals. Deterministic/bounded, hot-path safe. The shadow/enforce decision and
+        the per-policy egress_secret_guard flag are B-R3/B-R4; this only detects."""
+        return scan_response(response, known_secrets, request)
 
     # --- helpers -----------------------------------------------------------
     def _precomputed_high(self, event) -> bool:
