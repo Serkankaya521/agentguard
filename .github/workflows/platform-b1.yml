@@ -59,9 +59,11 @@ jobs:
           exit $code
       - name: npm audit
         run: |
-          set +e; npm audit --audit-level=high 2>&1 | tee /tmp/au.txt; code=${PIPESTATUS[0]}
-          [ $code -ne 0 ] && grep -nE "high|critical|vulnerabilit|Severity|npm error" /tmp/au.txt | tail -25 | while IFS= read -r l; do echo "::error::audit: $l"; done
-          exit $code
+          set +e
+          npm audit --json > /tmp/au.json 2>/dev/null
+          node -e "const a=(require('/tmp/au.json').vulnerabilities)||{};for(const[k,v]of Object.entries(a)){if(['high','critical'].includes(v.severity)){const via=(v.via||[]).map(x=>typeof x==='string'?x:(x.title||x.name)).join(' | ');console.log('::error::audit '+v.severity+' '+k+' range='+v.range+' fix='+JSON.stringify(v.fixAvailable)+' via='+via)}}" 2>/dev/null
+          npm audit --audit-level=high
+          exit $?
       - name: typecheck
         run: |
           set +e
