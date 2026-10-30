@@ -33,15 +33,7 @@ jobs:
           with psycopg.connect(os.environ['B1_TEST_OWNER_DSN']) as conn:
               conn.execute('CREATE ROLE ag_control LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT')
           PY
-      - name: pytest
-        run: |
-          set +e
-          python -m pytest -rA -q 2>&1 | tee /tmp/pt.txt
-          code=${PIPESTATUS[0]}
-          if [ $code -ne 0 ]; then
-            grep -nE "^FAILED |^ERROR |short test summary" /tmp/pt.txt | tail -30 | while IFS= read -r l; do echo "::error::$l"; done
-          fi
-          exit $code
+      - run: python -m pytest -q
       - run: python -m compileall -q apps packages dashboard core tests benchmarks migrations
       - name: Validate deployment YAML
         run: python -c "import pathlib,yaml; files=list(pathlib.Path('infra').rglob('*.y*ml'))+list(pathlib.Path('.github').rglob('*.y*ml')); [list(yaml.safe_load_all(p.read_text())) for p in files]; print(len(files))"
@@ -52,29 +44,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: {node-version: '24', cache: npm, cache-dependency-path: apps/web-console/package-lock.json}
-      - name: npm ci
-        run: |
-          set +e; npm ci --ignore-scripts 2>&1 | tee /tmp/ci.txt; code=${PIPESTATUS[0]}
-          [ $code -ne 0 ] && grep -nE "npm error|error|ETARGET|ERESOLVE" /tmp/ci.txt | tail -20 | while IFS= read -r l; do echo "::error::ci: $l"; done
-          exit $code
-      - name: npm audit
-        run: |
-          set +e
-          npm audit --json > /tmp/au.json 2>/dev/null
-          node -e "const a=(require('/tmp/au.json').vulnerabilities)||{};for(const[k,v]of Object.entries(a)){if(['high','critical'].includes(v.severity)){const via=(v.via||[]).map(x=>typeof x==='string'?x:(x.title||x.name)).join(' | ');console.log('::error::audit '+v.severity+' '+k+' range='+v.range+' fix='+JSON.stringify(v.fixAvailable)+' via='+via)}}" 2>/dev/null
-          npm audit --audit-level=high
-          exit $?
-      - name: typecheck
-        run: |
-          set +e
-          npm run typecheck 2>&1 | tee /tmp/tc.txt
-          code=${PIPESTATUS[0]}
-          [ $code -ne 0 ] && grep -nE "error TS|: error|Error" /tmp/tc.txt | tail -30 | while IFS= read -r l; do echo "::error::$l"; done
-          exit $code
-      - name: build
-        run: |
-          set +e
-          npm run build 2>&1 | tee /tmp/bd.txt
-          code=${PIPESTATUS[0]}
-          [ $code -ne 0 ] && grep -nE "error|Error|Failed|Module not found|Type error|./src" /tmp/bd.txt | tail -40 | while IFS= read -r l; do echo "::error::$l"; done
-          exit $code
+      - run: npm ci --ignore-scripts
+      - run: npm audit --audit-level=high
+      - run: npm run typecheck
+      - run: npm run build
