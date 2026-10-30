@@ -26,7 +26,7 @@ def test_response_aware_campaign_distinguishes_vulnerable_and_hardened_targets()
     assert vulnerable.findings > 0
     assert vulnerable.best_score >= .7
     assert hardened.findings == 0
-    assert hardened.best_score == 0
+    assert hardened.best_score < .7  # A1: ret artık gradyanlı (düşük non-zero); hardened başarı eşiğine ulaşmaz
 
 
 def test_campaign_evidence_excludes_raw_responses_and_redacts_secret_values():
