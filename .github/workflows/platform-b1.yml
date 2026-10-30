@@ -36,10 +36,10 @@ jobs:
       - name: pytest
         run: |
           set +e
-          python -m pytest -q 2>&1 | tee /tmp/pt.txt
+          python -m pytest -rA -q 2>&1 | tee /tmp/pt.txt
           code=${PIPESTATUS[0]}
           if [ $code -ne 0 ]; then
-            grep -nE "FAILED|^E |Error|assert|Traceback|ModuleNotFound|ImportError|psycopg|reportlab|FONT" /tmp/pt.txt | tail -30 | while IFS= read -r l; do echo "::error::$l"; done
+            grep -nE "^FAILED |^ERROR |short test summary" /tmp/pt.txt | tail -30 | while IFS= read -r l; do echo "::error::$l"; done
           fi
           exit $code
       - run: python -m compileall -q apps packages dashboard core tests benchmarks migrations
@@ -52,8 +52,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: {node-version: '24', cache: npm, cache-dependency-path: apps/web-console/package-lock.json}
-      - run: npm ci --ignore-scripts
-      - run: npm audit --audit-level=high
+      - name: npm ci
+        run: |
+          set +e; npm ci --ignore-scripts 2>&1 | tee /tmp/ci.txt; code=${PIPESTATUS[0]}
+          [ $code -ne 0 ] && grep -nE "npm error|error|ETARGET|ERESOLVE" /tmp/ci.txt | tail -20 | while IFS= read -r l; do echo "::error::ci: $l"; done
+          exit $code
+      - name: npm audit
+        run: |
+          set +e; npm audit --audit-level=high 2>&1 | tee /tmp/au.txt; code=${PIPESTATUS[0]}
+          [ $code -ne 0 ] && grep -nE "high|critical|vulnerabilit|Severity|npm error" /tmp/au.txt | tail -25 | while IFS= read -r l; do echo "::error::audit: $l"; done
+          exit $code
       - name: typecheck
         run: |
           set +e
