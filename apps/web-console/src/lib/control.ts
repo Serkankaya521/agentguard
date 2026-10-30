@@ -100,6 +100,11 @@ export type RunView = {
 export type TimelineEntry = {action: string; identity_id: string; correlation_id: string;
                              occurred_at: string; record_hash: string | null};
 
+export type AuditRecord = {
+  id: number; identity_id: string; correlation_id: string; action: string; resource_id: string;
+  occurred_at: string; prev_hash: string | null; record_hash: string | null;
+};
+
 export type FindingDetail = {
   finding: Finding & {workspace_id: string; environment_id: string};
   timeline: TimelineEntry[];

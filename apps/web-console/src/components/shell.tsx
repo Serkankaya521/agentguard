@@ -10,7 +10,8 @@ const NAV: {heading: string; links: [string, string][]}[] = [
                                    ['/findings', 'nav.findings'], ['/evidence', 'nav.regressions']]},
   {heading: 'nav.runtime', links: [['/policies', 'nav.policies'], ['/approvals', 'nav.approvals'], ['/assets', 'nav.assets']]},
   {heading: 'nav.admin', links: [['/workspaces', 'nav.workspaces'], ['/reports', 'nav.reports'],
-                                 ['/integrations', 'nav.integrations'], ['/operations', 'nav.operations']]},
+                                 ['/integrations', 'nav.integrations'], ['/audit', 'nav.audit'],
+                                 ['/operations', 'nav.operations']]},
 ];
 
 function active(pathname: string, href: string): boolean {
