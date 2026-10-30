@@ -1,1 +1,5 @@
-'use client';import {useState} from 'react';import {ResourcePage} from '@/components/resource-page';export default function Page(){const [workspace,setWorkspace]=useState('');return <><div className="toolbar"><input value={workspace} onChange={e=>setWorkspace(e.target.value)} placeholder="Workspace UUID"/></div>{workspace?<ResourcePage title="Approval queue" path={`v1/approval-requests?workspace_id=${encodeURIComponent(workspace)}`} description="Scoped requests, expiry and explicit deny/revoke state. The console does not override runtime decisions."/>:<p className="muted">Enter a workspace UUID.</p>}</>}
+import {ResourcePage} from '@/components/resource-page';
+
+export default function Page() {
+  return <ResourcePage titleKey="res.approvals" descKey="res.approvalsDesc" path="v1/approval-requests" scoped={true}/>;
+}

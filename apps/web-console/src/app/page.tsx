@@ -1,6 +1,102 @@
+'use client';
 import Link from 'next/link';
-export default function Home(){return <><div className="eyebrow">Autonomous agent security</div><h1>Continuously challenge every agent you deploy.</h1><p className="lede">Evolve adversarial campaigns, verify target-side evidence, turn confirmed failures into findings and replay every fix as a regression.</p><div className="statusbar"><span><b>RUNTIME</b> enforced</span><span><b>RED TEAM</b> bounded</span><span><b>EVIDENCE</b> tenant-scoped</span><span><b>LEARNING</b> governed</span></div><div className="grid">
-  <Link className="card featured" href="/campaigns"><div className="metric">01</div><h2>Campaign operations</h2><p className="muted">Create, schedule, pause and execute response-aware mutation campaigns.</p></Link>
-  <Link className="card" href="/findings"><div className="metric">02</div><h2>Evidence-backed findings</h2><p className="muted">Track confirmed canary disclosures through remediation and retest.</p></Link>
-  <Link className="card" href="/policies"><div className="metric">03</div><h2>Runtime defense</h2><p className="muted">Publish signed policies and enforce decisions without blocking intelligence work.</p></Link>
-</div></>}
+import {useEffect, useState} from 'react';
+import {TrendChart, TrendLegend} from '@/components/trend-chart';
+import {Badge, Empty, ErrorNote, PageHead, RequireWorkspace} from '@/components/ui';
+import {control, explain, Overview} from '@/lib/control';
+import {useT} from '@/lib/i18n';
+import {runTone, score, when} from '@/lib/format';
+
+const SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
+
+function OverviewBody({workspaceId}: {workspaceId: string}) {
+  const {t} = useT();
+  const postureTone = (value: number) => value >= 90 ? {tone: 'verified', label: t('overview.strong')}
+    : value >= 70 ? {tone: 'signal', label: t('overview.attention')} : {tone: 'breach', label: t('overview.atRisk')};
+  const [data, setData] = useState<Overview>();
+  const [error, setError] = useState('');
+  useEffect(() => {
+    setData(undefined); setError('');
+    control<Overview>(`v1/assessments/overview?workspace_id=${encodeURIComponent(workspaceId)}`)
+      .then(setData).catch(e => setError(explain(e)));
+  }, [workspaceId]);
+
+  if (error) return <ErrorNote message={error}/>;
+  if (!data) return <p className="muted">{t('common.loading')}</p>;
+  const {posture} = data;
+  const grade = postureTone(posture.score);
+  const slaPct = posture.sla_compliance === null ? '—' : `${Math.round(posture.sla_compliance * 100)}%`;
+  const hasTrend = data.trend.some(w => w.runs || w.found || w.resolved);
+
+  return <>
+    <div className="posture">
+      <div className={`posture-score ${grade.tone}`}>
+        <span className="posture-num">{posture.score}</span>
+        <span className="posture-grade">{grade.label}</span>
+        <span className="muted">{t('overview.posture')}</span>
+      </div>
+      <div className="figures posture-figures">
+        <div className={`figure ${posture.open_findings ? 'breach' : 'verified'}`}>
+          <b>{posture.open_findings}</b><span>{t('overview.openFindings')}</span></div>
+        <div className="figure"><b>{posture.mttr_days === null ? '—' : `${posture.mttr_days}${t('unit.dayShort')}`}</b>
+          <span>{t('overview.mttr')}</span></div>
+        <div className={`figure ${posture.sla_breached ? 'signal' : ''}`}><b>{slaPct}</b>
+          <span>{t('overview.slaCompliance')} ({posture.resolved_total} {t('overview.resolved')})</span></div>
+        <div className="figure"><b>{data.runs_30d.total}</b><span>{t('overview.runs30')}</span></div>
+      </div>
+    </div>
+
+    <div className="split section">
+      <section className="panel">
+        <h2>{t('overview.activity')}</h2>
+        {hasTrend ? <><TrendChart data={data.trend}/><TrendLegend/></>
+          : <p className="muted" style={{margin: 0}}>{t('overview.noActivity')}</p>}
+      </section>
+      <section className="panel">
+        <h2>{t('overview.openBySeverity')}</h2>
+        {posture.open_findings === 0
+          ? <p className="muted" style={{margin: 0}}>{t('overview.noOpen')}</p>
+          : <dl className="facts">{SEVERITIES.filter(s => data.open_findings_by_severity[s]).map(s =>
+              <div key={s} style={{display: 'contents'}}>
+                <dt><Badge tone={s === 'CRITICAL' || s === 'HIGH' ? 'breach' : 'signal'}>{s.toLowerCase()}</Badge></dt>
+                <dd><Link href="/findings">{data.open_findings_by_severity[s]} {t('overview.open')}</Link></dd></div>)}</dl>}
+        <dl className="facts" style={{marginTop: 14}}>
+          <dt>{t('overview.regPassing')}</dt><dd>{data.regressions.passed || 0}</dd>
+          <dt>{t('overview.regReopened')}</dt><dd>{data.regressions.reopened || 0}</dd>
+          <dt>{t('overview.campaignsLine')}</dt><dd>{data.campaigns.total} ({data.campaigns.active} {t('overview.scheduled')})</dd>
+        </dl>
+      </section>
+    </div>
+
+    <section className="section">
+      <h2>{t('overview.recentRuns')}</h2>
+      {data.recent_runs.length === 0
+        ? <div className="panel"><Empty title={t('overview.noRuns')}><p>{t('overview.noRunsBody')}</p>
+            <Link className="button primary" href="/campaigns">{t('overview.createCampaign')}</Link></Empty></div>
+        : <div className="table-wrap"><table>
+            <thead><tr><th>{t('col.campaign')}</th><th>{t('common.status')}</th><th className="num">{t('col.requests')}</th>
+              <th className="num">{t('col.findings')}</th><th className="num">{t('col.bestScore')}</th><th>{t('col.started')}</th></tr></thead>
+            <tbody>{data.recent_runs.map(run => <tr key={run.id}>
+              <td><Link href={`/campaigns/${run.campaign_id}/runs/${run.id}`}>{run.campaign_name}</Link></td>
+              <td><Badge tone={runTone(run.status)}>{run.status}</Badge></td>
+              <td className="num">{run.candidates_evaluated}</td>
+              <td className="num">{run.findings_created ? <Badge tone="breach">{run.findings_created}</Badge> : 0}</td>
+              <td className="num">{score(run.best_score)}</td>
+              <td>{when(run.created_at)}</td>
+            </tr>)}</tbody></table></div>}
+    </section>
+  </>;
+}
+
+function OverviewHead() {
+  const {t} = useT();
+  return <PageHead title={t('overview.title')} description={t('overview.desc')}
+    actions={<Link className="button primary" href="/campaigns">{t('overview.newCampaign')}</Link>}/>;
+}
+
+export default function Home() {
+  return <>
+    <OverviewHead/>
+    <RequireWorkspace>{workspaceId => <OverviewBody workspaceId={workspaceId}/>}</RequireWorkspace>
+  </>;
+}

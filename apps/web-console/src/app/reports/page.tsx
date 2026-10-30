@@ -1,1 +1,5 @@
-'use client';import {useState} from 'react';import {ResourcePage} from '@/components/resource-page';export default function Page(){const [workspace,setWorkspace]=useState('');return <><div className="eyebrow">Asynchronous · P4</div><div className="toolbar"><input value={workspace} onChange={e=>setWorkspace(e.target.value)} placeholder="Workspace UUID"/></div>{workspace?<ResourcePage title="Reports" path={`v1/reports?workspace_id=${encodeURIComponent(workspace)}`} description="Bounded report jobs and object-storage artifacts. Reporting never blocks runtime enforcement."/>:<p className="muted">Enter a workspace UUID.</p>}</>}
+import {ResourcePage} from '@/components/resource-page';
+
+export default function Page() {
+  return <ResourcePage titleKey="res.reports" descKey="res.reportsDesc" path="v1/reports" scoped={true}/>;
+}

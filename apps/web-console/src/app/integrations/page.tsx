@@ -1,1 +1,5 @@
-import {ResourcePage} from '@/components/resource-page';export default function Page(){return <ResourcePage title="Integrations" path="v1/integrations" description="HTTPS destinations backed by external secret references. Credentials are never returned to the browser."/>}
+import {ResourcePage} from '@/components/resource-page';
+
+export default function Page() {
+  return <ResourcePage titleKey="res.integrations" descKey="res.integrationsDesc" path="v1/integrations" scoped={false}/>;
+}

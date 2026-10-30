@@ -349,6 +349,31 @@ def test_campaign_schedule_recovery_and_canary_to_regression(platform):
         finding=conn.execute('SELECT state,document FROM platform.findings WHERE tenant_id=%s AND id=%s',(tenant,finding_id)).fetchone()
         assert finding[0]=='RESOLVED_VERIFIED' and finding[1]['state']=='RESOLVED_VERIFIED'
         assert finding[1]['evidence_backed'] is True and finding[1]['regression_fingerprint']
+    detail=client.get(f'/v1/campaigns/{campaign_id}/runs/{run_id}',headers=headers)
+    assert detail.status_code==200
+    view=detail.json()
+    assert view['summary']['verdict']=='RESOLVED' and view['summary']['verified_findings']==1
+    assert 'secret_ref' not in view['campaign'] and 'canary_secret_ref' not in view['campaign']
+    assert view['findings'][0]['regression']['status']=='passed'
+    assert view['evidence']['object_hash']==evidence[1]
+    assert all('response_sample' not in row and 'TARGET-CANARY-42' not in row['payload'] for row in view['candidates'])
+    assert client.get(f'/v1/campaigns/{uuid4()}/runs/{run_id}',headers=headers).status_code==404
+    report=client.get(f'/v1/campaigns/{campaign_id}/runs/{run_id}/report.pdf?lang=en',headers=headers)
+    assert report.status_code==200 and report.headers['content-type']=='application/pdf'
+    assert report.content.startswith(b'%PDF') and report.headers['cache-control']=='no-store'
+    assert b'TARGET-CANARY-42' not in report.content
+    overview=client.get(f'/v1/assessments/overview?workspace_id={workspace}',headers=headers).json()
+    assert overview['campaigns']['total']>=1 and overview['regressions'].get('passed',0)>=1
+    assert any(row['id']==str(run_id) for row in overview['recent_runs'])
+    detail=client.get(f'/v1/findings/{finding_id}/detail',headers=headers).json()
+    assert detail['finding']['state']=='RESOLVED_VERIFIED'
+    assert detail['origin']['run_id']==str(run_id) and detail['origin']['candidate']['evidence_level']=='target_canary'
+    assert 'TARGET-CANARY-42' not in detail['origin']['candidate']['payload']
+    assert detail['regression']['status']=='passed'
+    # Worker-created findings are written directly (not via the audited API), so the
+    # audit-derived timeline is legitimately empty here; assert shape, not content.
+    assert isinstance(detail['timeline'],list)
+    assert client.get(f'/v1/findings/{uuid4()}/detail',headers=headers).status_code==404
 
 
 def test_new_tables_remain_cross_tenant_and_audit_chain_is_complete(platform):

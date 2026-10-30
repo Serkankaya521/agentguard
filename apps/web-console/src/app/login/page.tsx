@@ -1,3 +1,30 @@
 'use client';
-import {FormEvent,useState} from 'react';
-export default function Login(){const [error,setError]=useState('');async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();const token=new FormData(e.currentTarget).get('token');const r=await fetch('/api/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})});if(r.ok)location.assign('/');else setError((await r.json()).code)}return <form className="card login" onSubmit={submit}><div className="eyebrow">Secure session</div><h2>Connect to Control API</h2><p className="muted">The credential is stored in an HttpOnly, SameSite cookie and is never exposed to page JavaScript after submission.</p><input name="token" type="password" minLength={32} maxLength={256} autoComplete="off" required placeholder="Service identity token"/><button>Start session</button>{error&&<p className="error">{error}</p>}</form>}
+import {FormEvent, useState} from 'react';
+import {useT} from '@/lib/i18n';
+
+export default function Login() {
+  const {t} = useT();
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true); setError('');
+    const token = new FormData(event.currentTarget).get('token');
+    const response = await fetch('/api/session', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                                  body: JSON.stringify({token})});
+    if (response.ok) { location.assign('/'); return; }
+    const code = (await response.json().catch(() => ({}))).code;
+    setError(`${t('login.signIn')}: ${code || response.status}`);
+    setBusy(false);
+  }
+  return <div className="login panel">
+    <h1>{t('login.title')}</h1>
+    <p className="muted">{t('login.note')}</p>
+    <form onSubmit={submit}>
+      <label className="field">{t('login.token')}
+        <input name="token" type="password" minLength={32} maxLength={256} autoComplete="off" required autoFocus/></label>
+      {error && <p className="notice error" role="alert">{error}</p>}
+      <button className="primary" disabled={busy}>{busy ? t('login.signingIn') : t('login.signIn')}</button>
+    </form>
+  </div>;
+}

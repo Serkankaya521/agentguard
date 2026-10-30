@@ -1,1 +1,5 @@
-'use client';import {useState} from 'react';import {ResourcePage} from '@/components/resource-page';export default function Page(){const [workspace,setWorkspace]=useState('');return <><div className="toolbar"><input value={workspace} onChange={e=>setWorkspace(e.target.value)} placeholder="Workspace UUID"/></div>{workspace?<ResourcePage title="Compiled policies" path={`v1/policies?workspace_id=${encodeURIComponent(workspace)}`} description="Versioned policy artifacts and publication state. Evaluation remains in Runtime Gateway."/>:<p className="muted">Enter a workspace UUID.</p>}</>}
+import {ResourcePage} from '@/components/resource-page';
+
+export default function Page() {
+  return <ResourcePage titleKey="res.policies" descKey="res.policiesDesc" path="v1/policies" scoped={true}/>;
+}

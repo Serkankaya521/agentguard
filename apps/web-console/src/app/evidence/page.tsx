@@ -1,3 +1,49 @@
 'use client';
-import {useCallback,useEffect,useState} from 'react';import {control,Row} from '@/lib/control';
-export default function Evidence(){const [cases,setCases]=useState<Row[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState('');const load=useCallback(()=>{setError('');control<Row[]>('v1/regression-cases').then(setCases).catch(e=>setError(e.message))},[]);useEffect(load,[load]);async function replay(id:string){setBusy(id);setError('');try{await control(`v1/regression-cases/${id}/runs`,{method:'POST',headers:{'Idempotency-Key':`regression-${id}-${Date.now()}`}});await load()}catch(e){setError(e instanceof Error?e.message:'REQUEST_FAILED')}finally{setBusy('')}}return <><div className="eyebrow">Evidence and regression</div><h1>Verified attack memory</h1><p className="lede">Every target-side canary disclosure becomes a tenant-scoped finding and a replayable regression case.</p>{error&&<p className="error">{error}</p>}<table><thead><tr><th>Case</th><th>Finding</th><th>Campaign</th><th>Status</th><th>Expected</th><th>Last run</th><th>Action</th></tr></thead><tbody>{cases.map((row,i)=><tr key={String(row.id||i)}><td><code>{String(row.id)}</code></td><td>{String(row.finding_id)}</td><td>{String(row.campaign_id)}</td><td><span className={`badge ${String(row.status)}`}>{String(row.status)}</span></td><td>{row.expected_block?'BLOCK':'ALLOW'}</td><td>{String(row.last_run_at||'not replayed')}</td><td><button disabled={!!busy} onClick={()=>replay(String(row.id))}>{busy===String(row.id)?'Queued…':'Replay'}</button></td></tr>)}</tbody></table>{!error&&cases.length===0&&<p className="muted">No verified regression cases yet.</p>}</>}
+import Link from 'next/link';
+import {useCallback, useEffect, useState} from 'react';
+import {Badge, Empty, ErrorNote, PageHead} from '@/components/ui';
+import {control, explain, idempotencyKey} from '@/lib/control';
+import {useT} from '@/lib/i18n';
+import {regressionTone, shortId, when} from '@/lib/format';
+
+type RegressionCase = {id: string; finding_id: string; campaign_id: string; expected_block: boolean;
+                       status: string; last_run_at: string | null; created_at: string};
+
+export default function RegressionCases() {
+  const {t} = useT();
+  const [cases, setCases] = useState<RegressionCase[]>();
+  const [error, setError] = useState('');
+  const [queued, setQueued] = useState<Set<string>>(new Set());
+
+  const load = useCallback(() => {
+    control<RegressionCase[]>('v1/regression-cases').then(setCases).catch(e => setError(explain(e)));
+  }, []);
+  useEffect(load, [load]);
+
+  async function replay(id: string) {
+    setError('');
+    try {
+      await control(`v1/regression-cases/${id}/runs`, {method: 'POST', headers: {'Idempotency-Key': idempotencyKey(`replay-${id}`)}});
+      setQueued(previous => new Set(previous).add(id));
+    } catch (e) { setError(explain(e)); }
+  }
+
+  return <>
+    <PageHead title={t('regr.title')} description={t('regr.desc')}
+      actions={<button onClick={load}>{t('common.refresh')}</button>}/>
+    <ErrorNote message={error}/>
+    {cases && (cases.length === 0
+      ? <div className="panel"><Empty title={t('regr.none')}>{t('regr.noneBody')}</Empty></div>
+      : <div className="table-wrap"><table>
+          <thead><tr><th>{t('col.case')}</th><th>{t('col.campaignCol')}</th><th>{t('common.status')}</th><th>{t('col.lastReplay')}</th><th>{t('col.created')}</th><th/></tr></thead>
+          <tbody>{cases.map(row => <tr key={row.id}>
+            <td><code>{shortId(row.id)}</code><div className="hash">{t('col.finding').toLowerCase()} {shortId(row.finding_id)}</div></td>
+            <td><Link href={`/campaigns/${row.campaign_id}`}>{shortId(row.campaign_id)}</Link></td>
+            <td><Badge tone={regressionTone(row.status)}>{row.status}</Badge></td>
+            <td>{row.last_run_at ? when(row.last_run_at) : t('common.never')}</td>
+            <td>{when(row.created_at)}</td>
+            <td>{queued.has(row.id) ? <span className="muted">{t('regr.replayQueued')}</span>
+              : <button onClick={() => replay(row.id)}>{t('regr.replay')}</button>}</td>
+          </tr>)}</tbody></table></div>)}
+  </>;
+}
