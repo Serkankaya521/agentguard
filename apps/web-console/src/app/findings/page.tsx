@@ -3,19 +3,10 @@ import Link from 'next/link';
 import {useCallback, useEffect, useState} from 'react';
 import {Badge, Empty, ErrorNote, PageHead, RequireWorkspace} from '@/components/ui';
 import {control, explain, Finding} from '@/lib/control';
+import {NEXT} from '@/lib/findings';
 import {useT} from '@/lib/i18n';
 import {findingTone, shortId, sla, when} from '@/lib/format';
 
-// Mirrors the server's allowed workflow so only valid buttons are shown; the API still enforces it.
-// Second element is an i18n key.
-export const NEXT: Record<string, [string, string][]> = {
-  SUSPECTED: [['VALIDATING', 'tr.validate'], ['FALSE_POSITIVE', 'tr.falsePositive']],
-  VALIDATING: [['CONFIRMED', 'tr.confirm'], ['FALSE_POSITIVE', 'tr.falsePositive']],
-  CONFIRMED: [['FIX_PROPOSED', 'tr.fixProposed'], ['FALSE_POSITIVE', 'tr.falsePositive']],
-  FIX_PROPOSED: [['RETESTING', 'tr.startRetest']],
-  REOPENED: [['FIX_PROPOSED', 'tr.fixProposed'], ['RETESTING', 'tr.startRetest']],
-  FALSE_POSITIVE: [['REOPENED', 'tr.reopen']],
-};
 const SEVERITY_RANK: Record<string, number> = {CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3};
 const label = (state: string) => state.toLowerCase().replaceAll('_', ' ');
 

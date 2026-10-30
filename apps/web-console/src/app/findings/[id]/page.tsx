@@ -6,7 +6,7 @@ import {Badge, ErrorNote, PageHead} from '@/components/ui';
 import {control, explain, FindingDetail, idempotencyKey} from '@/lib/control';
 import {useT} from '@/lib/i18n';
 import {auditLabel, findingTone, regressionTone, shortId, sla, when} from '@/lib/format';
-import {NEXT} from '@/app/findings/page';
+import {NEXT} from '@/lib/findings';
 
 const label = (state: string) => state.toLowerCase().replaceAll('_', ' ');
 
