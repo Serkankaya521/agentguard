@@ -11,6 +11,12 @@ from uuid import UUID
 from fastapi import Header, HTTPException, Query, Request
 from fastapi.responses import Response
 
+import csv
+import io
+import json
+
+from assessment_insights import (build_attack_trace, categorize, category_ref,
+                                  feedback_action, feedback_from_timeline, remediation_detail)
 from assessment_report import build_assessment_pdf, summarize
 from campaigns import public
 from database import Database, audit
@@ -54,6 +60,7 @@ def load_run_bundle(conn, campaign_id: UUID, run_id: UUID) -> dict:
         'candidates': [dict(row, fitness=float(row['fitness'])) for row in candidates],
         'findings': [{
             'id': row['id'], 'state': row['state'], 'version': row['version'], 'document': row['document'],
+            'category': category_ref(row['document']),
             'created_at': row['created_at'], 'updated_at': row['updated_at'],
             'regression': {'case_id': row['regression_case_id'], 'status': row['regression_status'],
                            'last_run_at': row['regression_last_run_at']} if row['regression_case_id'] else None,
@@ -75,7 +82,34 @@ def console_view(bundle: dict) -> dict:
     return view
 
 
-def load_finding_detail(conn, finding_id: UUID) -> dict:
+def _compare_side(bundle: dict) -> dict:
+    """Per-run facts for the compare view: summary, per-category counts, finding identities."""
+    summary = summarize(bundle)
+    run = bundle['run']
+    by_category: dict[str, int] = {}
+    owasp: dict[str, str] = {}
+    findings = []
+    for finding in bundle['findings']:
+        doc = finding['document'] or {}
+        key = finding['category']['key']
+        by_category[key] = by_category.get(key, 0) + 1
+        if finding['category']['owasp_id']:
+            owasp[key] = finding['category']['owasp_id']
+        fingerprint = (doc.get('regression_fingerprint')
+                       or f"{key}:{doc.get('title', '')}:{doc.get('severity', '')}")
+        findings.append({'fingerprint': fingerprint, 'id': str(finding['id']),
+                         'title': doc.get('title', ''), 'severity': doc.get('severity', ''),
+                         'category': key, 'owasp_id': finding['category']['owasp_id'],
+                         'state': finding['state']})
+    return {
+        'summary': {**summary, 'run_id': str(run['id']),
+                    'scheduled_for': run.get('scheduled_for'), 'completed_at': run.get('completed_at'),
+                    'status': run.get('status')},
+        'by_category': by_category, 'owasp': owasp, 'findings': findings,
+    }
+
+
+def load_finding_detail(conn, finding_id: UUID, lang: str = 'en') -> dict:
     finding = conn.execute(
         'SELECT id,workspace_id,environment_id,state,version,document,created_at,updated_at '
         'FROM platform.findings WHERE id=%s', (finding_id,)).fetchone()
@@ -94,26 +128,60 @@ def load_finding_detail(conn, finding_id: UUID) -> dict:
         'r.campaign_id FROM platform.campaign_candidates c '
         'JOIN platform.campaign_runs r ON r.tenant_id=c.tenant_id AND r.id=c.run_id '
         'WHERE c.finding_id=%s ORDER BY c.created_at LIMIT 1', (finding_id,)).fetchone()
+    document = dict(finding).get('document') or {}
+    lang = 'tr' if lang == 'tr' else 'en'
+    timeline_rows = [dict(row) for row in timeline]
+    candidate_view = {
+        'generation': candidate['generation'], 'lineage': candidate['lineage'],
+        'payload': candidate['payload'], 'response_hash': candidate['response_hash'],
+        'fitness': float(candidate['fitness']), 'evidence_level': candidate['evidence_level'],
+    } if candidate else None
     return {
         'finding': dict(finding),
-        'timeline': [dict(row) for row in timeline],
+        'category': category_ref(document),
+        'remediation_detail': remediation_detail(categorize(document), document, lang),
+        'attack_trace': build_attack_trace(candidate_view, document, lang),
+        'feedback': feedback_from_timeline(timeline_rows),
+        'timeline': [row for row in timeline_rows if row.get('action') not in
+                     ('finding.feedback.good', 'finding.feedback.bad', 'finding.feedback.clear')],
         'regression': dict(regression) if regression else None,
         'origin': {
             'run_id': candidate['run_id'], 'campaign_id': candidate['campaign_id'],
-            'candidate': {'generation': candidate['generation'], 'lineage': candidate['lineage'],
-                          'payload': candidate['payload'], 'response_hash': candidate['response_hash'],
-                          'fitness': float(candidate['fitness']), 'evidence_level': candidate['evidence_level']},
+            'candidate': candidate_view,
         } if candidate else None,
     }
 
 
 def install_assessment_routes(app, database: Database):
     @app.get('/v1/findings/{finding_id}/detail')
-    def finding_detail(finding_id: UUID, request: Request, authorization: str | None = Header(None)):
+    def finding_detail(finding_id: UUID, request: Request,
+                       lang: Literal['tr', 'en'] = Query('en'),
+                       authorization: str | None = Header(None)):
         with database.authenticated(authorization) as (conn, principal):
-            detail = load_finding_detail(conn, finding_id)
+            detail = load_finding_detail(conn, finding_id, lang=lang)
             database.authorize(principal, 'tenant.read', str(detail['finding']['workspace_id']))
             return detail
+
+    @app.post('/v1/findings/{finding_id}/feedback')
+    def finding_feedback(finding_id: UUID, body: dict, request: Request,
+                         authorization: str | None = Header(None)):
+        """Analyst marks a finding accurate/false-alarm. Stored append-only in the
+        tamper-evident audit chain, so the latest verdict is recoverable and auditable."""
+        verdict = (body or {}).get('verdict')
+        if verdict not in ('good', 'bad', 'clear'):
+            raise HTTPException(422, 'INVALID_INPUT')
+        with database.authenticated(authorization) as (conn, principal):
+            finding = conn.execute(
+                'SELECT id,workspace_id,environment_id FROM platform.findings WHERE id=%s',
+                (finding_id,)).fetchone()
+            if not finding:
+                raise HTTPException(404, 'NOT_FOUND')
+            env = conn.execute('SELECT kind FROM platform.environments WHERE id=%s',
+                               (finding['environment_id'],)).fetchone()
+            database.authorize(principal, 'finding.manage', str(finding['workspace_id']),
+                               env['kind'] if env else None)
+            audit(conn, principal, request.state.correlation_id, feedback_action(verdict), finding_id)
+            return {'finding_id': str(finding_id), 'feedback': None if verdict == 'clear' else verdict}
 
     @app.get('/v1/campaigns/{campaign_id}/runs/{run_id}')
     def run_detail(campaign_id: UUID, run_id: UUID, request: Request,
@@ -138,6 +206,81 @@ def install_assessment_routes(app, database: Database):
             'Cache-Control': 'no-store',
             'X-Content-Type-Options': 'nosniff',
         })
+
+    @app.get('/v1/campaigns/{campaign_id}/runs/{run_id}/export.json')
+    def run_export_json(campaign_id: UUID, run_id: UUID, request: Request,
+                        authorization: str | None = Header(None)):
+        with database.authenticated(authorization) as (conn, principal):
+            bundle = load_run_bundle(conn, campaign_id, run_id)
+            database.authorize(principal, 'report.read', str(bundle['campaign']['workspace_id']))
+            audit(conn, principal, request.state.correlation_id, 'campaign.run.export.json', run_id)
+            view = console_view(bundle)
+        payload = json.dumps(view, default=str, ensure_ascii=False, indent=2)
+        filename = f'agentguard-run-{str(run_id)[:8]}.json'
+        return Response(payload, media_type='application/json', headers={
+            'Content-Disposition': f'attachment; filename="{filename}"', 'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff'})
+
+    @app.get('/v1/campaigns/{campaign_id}/runs/{run_id}/export.csv')
+    def run_export_csv(campaign_id: UUID, run_id: UUID, request: Request,
+                       authorization: str | None = Header(None)):
+        with database.authenticated(authorization) as (conn, principal):
+            bundle = load_run_bundle(conn, campaign_id, run_id)
+            database.authorize(principal, 'report.read', str(bundle['campaign']['workspace_id']))
+            audit(conn, principal, request.state.correlation_id, 'campaign.run.export.csv', run_id)
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(['finding_id', 'state', 'severity', 'category', 'owasp', 'title',
+                         'evidence_level', 'root_cause', 'remediation', 'created_at'])
+        for finding in bundle['findings']:
+            doc = finding['document'] or {}
+            writer.writerow([
+                str(finding['id']), finding['state'], doc.get('severity', ''),
+                finding['category']['key'], finding['category']['owasp_id'] or '',
+                doc.get('title', ''), doc.get('evidence_level', ''),
+                doc.get('root_cause', ''), doc.get('remediation', ''),
+                finding['created_at'],
+            ])
+        filename = f'agentguard-run-{str(run_id)[:8]}.csv'
+        return Response(buffer.getvalue(), media_type='text/csv', headers={
+            'Content-Disposition': f'attachment; filename="{filename}"', 'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff'})
+
+    @app.get('/v1/campaigns/{campaign_id}/compare')
+    def compare_runs(campaign_id: UUID, request: Request, base: UUID, head: UUID,
+                     authorization: str | None = Header(None)):
+        """Diff two runs of the same campaign: what was fixed, what is new, what persists,
+        and how risk shifted per attack category. `base` is the earlier reference scan."""
+        if base == head:
+            raise HTTPException(422, 'INVALID_INPUT')
+        with database.authenticated(authorization) as (conn, principal):
+            base_bundle = load_run_bundle(conn, campaign_id, base)
+            head_bundle = load_run_bundle(conn, campaign_id, head)
+            database.authorize(principal, 'tenant.read', str(base_bundle['campaign']['workspace_id']))
+            base_side = _compare_side(base_bundle)
+            head_side = _compare_side(head_bundle)
+        base_fp = {f['fingerprint']: f for f in base_side['findings']}
+        head_fp = {f['fingerprint']: f for f in head_side['findings']}
+        fixed = [f for fp, f in base_fp.items() if fp not in head_fp]
+        new = [f for fp, f in head_fp.items() if fp not in base_fp]
+        persisting = [f for fp, f in head_fp.items() if fp in base_fp]
+        keys = sorted(set(base_side['by_category']) | set(head_side['by_category']))
+        categories = [{'key': key, 'owasp_id': head_side['owasp'].get(key) or base_side['owasp'].get(key),
+                       'base': base_side['by_category'].get(key, 0),
+                       'head': head_side['by_category'].get(key, 0),
+                       'delta': head_side['by_category'].get(key, 0) - base_side['by_category'].get(key, 0)}
+                      for key in keys]
+        return {
+            'campaign': {'id': str(campaign_id), 'name': base_bundle['campaign']['name']},
+            'base': base_side['summary'], 'head': head_side['summary'],
+            'delta': {
+                'verified_findings': head_side['summary']['verified_findings'] - base_side['summary']['verified_findings'],
+                'open_findings': head_side['summary']['open_findings'] - base_side['summary']['open_findings'],
+                'requests': head_side['summary']['requests'] - base_side['summary']['requests'],
+            },
+            'categories': categories,
+            'findings': {'fixed': fixed, 'new': new, 'persisting': persisting},
+        }
 
     @app.get('/v1/assessments/coverage')
     def coverage(request: Request, workspace_id: UUID, authorization: str | None = Header(None)):
@@ -197,6 +340,10 @@ def install_assessment_routes(app, database: Database):
             findings = conn.execute(
                 "SELECT state, coalesce(document->>'severity','UNKNOWN') AS severity, count(*) AS n "
                 'FROM platform.findings WHERE workspace_id=%s GROUP BY 1,2', (workspace_id,)).fetchall()
+            # Category needs the document; fetch open findings' classifying fields (bounded).
+            open_docs = conn.execute(
+                "SELECT document FROM platform.findings WHERE workspace_id=%s "
+                "AND state NOT IN ('RESOLVED_VERIFIED','FALSE_POSITIVE') LIMIT 2000", (workspace_id,)).fetchall()
             regressions = conn.execute(
                 'SELECT r.status, count(*) AS n FROM platform.regression_cases r '
                 'JOIN platform.campaigns c ON c.tenant_id=r.tenant_id AND c.id=r.campaign_id '
@@ -243,6 +390,18 @@ def install_assessment_routes(app, database: Database):
                   'found': runs_by_week.get(week, {}).get('found', 0),
                   'resolved': resolved_by_week.get(week, 0)} for week in weeks]
 
+        # Open findings grouped by attack category (OWASP LLM Top 10), derived at read time.
+        category_counts: dict[str, int] = {}
+        category_owasp: dict[str, str | None] = {}
+        for row in open_docs:
+            ref = category_ref(row['document'] or {})
+            category_counts[ref['key']] = category_counts.get(ref['key'], 0) + 1
+            category_owasp[ref['key']] = ref['owasp_id']
+        open_by_category = sorted(
+            ({'key': key, 'owasp_id': category_owasp.get(key), 'count': count}
+             for key, count in category_counts.items()),
+            key=lambda item: item['count'], reverse=True)
+
         open_total = sum(open_by_severity.values())
         resolved_total = int(remediation['resolved'])
         within = int(remediation['within_sla'])
@@ -257,6 +416,7 @@ def install_assessment_routes(app, database: Database):
             'runs_30d': dict(runs),
             'findings_by_state': by_state,
             'open_findings_by_severity': open_by_severity,
+            'open_findings_by_category': open_by_category,
             'regressions': {row['status']: row['n'] for row in regressions},
             'recent_runs': recent,
             'posture': {

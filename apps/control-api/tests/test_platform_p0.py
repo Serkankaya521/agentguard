@@ -375,6 +375,57 @@ def test_campaign_schedule_recovery_and_canary_to_regression(platform):
     assert isinstance(detail['timeline'],list)
     assert client.get(f'/v1/findings/{uuid4()}/detail',headers=headers).status_code==404
 
+    # --- Read-layer insight enrichment: category, OWASP, structured fix, attack trace ---
+    assert detail['category']=={'key':'sensitive_disclosure','owasp_id':'LLM02'}
+    fix=detail['remediation_detail']
+    assert fix['immediate'] and fix['long_term'] and fix['guard'] and fix['guard_level']
+    assert isinstance(detail['attack_trace'],list) and detail['attack_trace']
+    assert any(step['role']=='proof' for step in detail['attack_trace'])
+    assert all('TARGET-CANARY-42' not in step.get('text','') for step in detail['attack_trace'])
+    detail_tr=client.get(f'/v1/findings/{finding_id}/detail?lang=tr',headers=headers).json()
+    assert detail_tr['remediation_detail']['guard']!=fix['guard']  # localised
+
+    # --- Analyst feedback: append-only, latest-wins, clearable, off the lifecycle timeline ---
+    assert client.post(f'/v1/findings/{finding_id}/feedback',json={'verdict':'nope'},headers=headers).status_code==422
+    assert client.post(f'/v1/findings/{finding_id}/feedback',json={'verdict':'good'},headers=headers).status_code==200
+    assert client.get(f'/v1/findings/{finding_id}/detail',headers=headers).json()['feedback']=='good'
+    assert client.post(f'/v1/findings/{finding_id}/feedback',json={'verdict':'bad'},headers=headers).status_code==200
+    assert client.get(f'/v1/findings/{finding_id}/detail',headers=headers).json()['feedback']=='bad'
+    assert client.post(f'/v1/findings/{finding_id}/feedback',json={'verdict':'clear'},headers=headers).status_code==200
+    reloaded=client.get(f'/v1/findings/{finding_id}/detail',headers=headers).json()
+    assert reloaded['feedback'] is None
+    assert all('feedback' not in e['action'] for e in reloaded['timeline'])
+    assert client.post(f'/v1/findings/{uuid4()}/feedback',json={'verdict':'good'},headers=headers).status_code==404
+
+    # --- Overview groups open findings by category (shape; this finding is resolved) ---
+    assert isinstance(overview['open_findings_by_category'],list)
+
+    # --- Machine-readable exports never leak the canary ---
+    ejson=client.get(f'/v1/campaigns/{campaign_id}/runs/{run_id}/export.json',headers=headers)
+    assert ejson.status_code==200 and ejson.headers['content-type'].startswith('application/json')
+    assert 'TARGET-CANARY-42' not in ejson.text
+    assert ejson.json()['findings'][0]['category']['owasp_id']=='LLM02'
+    ecsv=client.get(f'/v1/campaigns/{campaign_id}/runs/{run_id}/export.csv',headers=headers)
+    assert ecsv.status_code==200 and ecsv.headers['content-type'].startswith('text/csv')
+    assert 'sensitive_disclosure' in ecsv.text and 'LLM02' in ecsv.text and 'TARGET-CANARY-42' not in ecsv.text
+
+    # --- Run comparison: a second clean run shows the finding as fixed ---
+    run2=client.post(f'/v1/campaigns/{campaign_id}/runs',
+                     headers={**headers,'Idempotency-Key':secrets.token_urlsafe(16)}).json()['run_id']
+    clean=SimpleNamespace(candidates=(SimpleNamespace(prompt='benign',generation=0,mutations_applied=[],
+                          fitness_score=.1,response_sample='request refused'),),candidates_evaluated=1,best_score=.1)
+    CampaignExecutor(app_dsn,store,lambda campaign,api_key=None:clean,
+        secret_resolver=lambda ref:'TARGET-CANARY-42' if ref.endswith('CANARY') else 'session-key')(
+        {'tenant_id':str(tenant),'payload':{'campaign_id':str(campaign_id),'run_id':run2}})
+    assert client.get(f'/v1/campaigns/{campaign_id}/compare?base={run_id}&head={run_id}',headers=headers).status_code==422
+    cmp=client.get(f'/v1/campaigns/{campaign_id}/compare?base={run_id}&head={run2}',headers=headers)
+    assert cmp.status_code==200
+    cmp=cmp.json()
+    assert cmp['base']['run_id']==str(run_id) and cmp['head']['run_id']==run2
+    assert len(cmp['findings']['fixed'])==1 and cmp['findings']['fixed'][0]['category']=='sensitive_disclosure'
+    assert cmp['findings']['new']==[]
+    assert any(c['key']=='sensitive_disclosure' for c in cmp['categories'])
+
 
 def test_new_tables_remain_cross_tenant_and_audit_chain_is_complete(platform):
     client, owner_dsn, app_dsn, tenant, identity, workspace, environment, headers, store = platform

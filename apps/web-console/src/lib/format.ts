@@ -99,10 +99,27 @@ export function sla(severity: string | undefined, state: string, createdAt: stri
 const ACTION_KEY: Record<string, string> = {
   'finding.create': 'audit.create', 'finding.transition': 'audit.transition',
   'finding.write': 'audit.write', 'campaign.run.report.export': 'audit.export',
+  'campaign.run.export.json': 'audit.export', 'campaign.run.export.csv': 'audit.export',
+  'finding.feedback.good': 'audit.feedback', 'finding.feedback.bad': 'audit.feedback',
+  'finding.feedback.clear': 'audit.feedback',
 };
 export function auditLabel(action: string, t: T): string {
   const key = ACTION_KEY[action];
   return key ? t(key) : action.replaceAll('.', ' ');
+}
+
+/** Human category label from the API category key, via i18n (cat.<key>). */
+export function categoryLabel(key: string | null | undefined, t: T): string {
+  if (!key) return '—';
+  const label = t(`cat.${key}`);
+  return label === `cat.${key}` ? key : label;
+}
+
+/** "LLM02 · Sensitive Information Disclosure" from an OWASP id, or the id alone. */
+export function owaspLabel(owaspId: string | null | undefined, t: T): string {
+  if (!owaspId) return '—';
+  const title = t(`owasp.${owaspId}`);
+  return title === `owasp.${owaspId}` ? owaspId : `${owaspId} · ${title}`;
 }
 
 // Verdict text lives in the i18n dictionary under verdict.<code>.{t,d}; only the

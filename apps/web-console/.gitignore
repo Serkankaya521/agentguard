@@ -1,0 +1,9 @@
+# Local offline typecheck shim (npm registry is unreachable in the sandbox).
+# Not part of the project; CI typechecks against real @types.
+/shim.d.ts
+/tsconfig.check.json
+
+# Next.js / Node build output
+/.next/
+/node_modules/
+/out/

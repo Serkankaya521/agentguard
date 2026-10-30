@@ -6,7 +6,7 @@ import {EvolutionGrid} from '@/components/evolution-grid';
 import {Badge, ErrorNote, Figures, PageHead} from '@/components/ui';
 import {control, controlUrl, explain, Finding, idempotencyKey, RunView} from '@/lib/control';
 import {useT} from '@/lib/i18n';
-import {duration, findingTone, origin, regressionTone, runTone, score, shortId, VERDICT_TONE, when} from '@/lib/format';
+import {categoryLabel, duration, findingTone, origin, owaspLabel, regressionTone, runTone, score, shortId, VERDICT_TONE, when} from '@/lib/format';
 
 function FindingBlock({finding, onReplay, busy}: {finding: Finding; onReplay: (caseId: string) => void; busy: boolean}) {
   const {t} = useT();
@@ -14,7 +14,9 @@ function FindingBlock({finding, onReplay, busy}: {finding: Finding; onReplay: (c
   const regression = finding.regression;
   return <article className="finding">
     <h3>{doc.title || t('col.finding')} <Badge tone={findingTone(finding.state)}>{finding.state.toLowerCase().replace('_', ' ')}</Badge>
-      {doc.severity && <Badge tone="breach">{doc.severity.toLowerCase()}</Badge>}</h3>
+      {doc.severity && <Badge tone="breach">{doc.severity.toLowerCase()}</Badge>}
+      {finding.category && <Badge tone="accent">{categoryLabel(finding.category.key, t)}</Badge>}
+      {finding.category?.owasp_id && <Badge>{owaspLabel(finding.category.owasp_id, t)}</Badge>}</h3>
     <dl className="facts">
       <dt>{t('finding.rootCause')}</dt><dd>{doc.root_cause || '—'}</dd>
       <dt>{t('finding.winningMutations')}</dt><dd>{doc.successful_mutations?.join(' → ') || '—'}</dd>
@@ -59,6 +61,7 @@ export default function RunDetail() {
   if (!view) return error ? <ErrorNote message={error}/> : <p className="muted">{t('common.loading')}</p>;
   const {campaign, run, summary} = view;
   const report = (lang: string) => controlUrl(`v1/campaigns/${id}/runs/${runId}/report.pdf?lang=${lang}`);
+  const exportUrl = (kind: string) => controlUrl(`v1/campaigns/${id}/runs/${runId}/export.${kind}`);
 
   return <>
     <PageHead title={`${t('col.run')} ${shortId(run.id)}`}
@@ -68,6 +71,9 @@ export default function RunDetail() {
       actions={<>
         <a className="button primary" href={report('tr')} download>{t('run.downloadTr')}</a>
         <a className="button" href={report('en')} download>{t('run.english')}</a>
+        <a className="button" href={exportUrl('json')} download>{t('run.exportJson')}</a>
+        <a className="button" href={exportUrl('csv')} download>{t('run.exportCsv')}</a>
+        <Link className="button" href={`/campaigns/${id}/compare?head=${runId}`}>{t('run.compare')}</Link>
       </>}/>
     <ErrorNote message={error}/>
     {notice && <p className="notice" role="status">{notice}</p>}

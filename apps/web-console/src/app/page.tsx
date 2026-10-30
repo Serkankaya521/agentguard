@@ -5,7 +5,7 @@ import {TrendChart, TrendLegend} from '@/components/trend-chart';
 import {Badge, Empty, ErrorNote, PageHead, RequireWorkspace} from '@/components/ui';
 import {control, explain, Overview} from '@/lib/control';
 import {useT} from '@/lib/i18n';
-import {runTone, score, when} from '@/lib/format';
+import {categoryLabel, owaspLabel, runTone, score, when} from '@/lib/format';
 
 const SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
 
@@ -67,6 +67,24 @@ function OverviewBody({workspaceId}: {workspaceId: string}) {
         </dl>
       </section>
     </div>
+
+    {data.open_findings_by_category.length > 0 && (() => {
+      const top = data.open_findings_by_category[0].count || 1;
+      return <section className="section panel">
+        <h2>{t('overview.openByCategory')}</h2>
+        <div className="cat-bars">{data.open_findings_by_category.map(row =>
+          <div key={row.key} className="cat-bar">
+            <div className="cat-bar-head">
+              <Link href="/findings">{categoryLabel(row.key, t)}</Link>
+              {row.owasp_id && <Badge>{owaspLabel(row.owasp_id, t)}</Badge>}
+              <span className="cat-bar-count">{row.count}</span>
+            </div>
+            <div className="cat-bar-track"><span className="cat-bar-fill"
+              style={{width: `${Math.round((row.count / top) * 100)}%`}}/></div>
+          </div>)}</div>
+        <p className="muted" style={{margin: '10px 0 0', fontSize: 12}}>{t('overview.owaspNote')}</p>
+      </section>;
+    })()}
 
     <section className="section">
       <h2>{t('overview.recentRuns')}</h2>

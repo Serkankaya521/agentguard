@@ -19,6 +19,8 @@ from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit
 from xml.sax.saxutils import escape
 
+from assessment_insights import OWASP_REFERENCE, categorize, category_facts, remediation_detail
+
 MAX_CANDIDATE_ROWS = 60          # appendix rows in the PDF
 MAX_PAYLOAD_EXCERPT = 600        # characters of a confirmed exploit payload
 SIGNAL_THRESHOLD = 0.7           # heuristic fitness considered a strong signal
@@ -68,6 +70,12 @@ TEXT = {
         'evidence_pattern': 'Kanıt (yanıt özeti)', 'fingerprint': 'Regresyon parmak izi',
         'remediation': 'Önerilen düzeltme', 'regression': 'Regresyon durumu', 'payload': 'Saldırı yükü (kısaltılmış)',
         'never_replayed': 'henüz tekrar çalıştırılmadı',
+        'category': 'Kategori', 'owasp': 'OWASP LLM Top 10',
+        'cat_dist': '3.1 Kategori dağılımı (OWASP LLM Top 10)',
+        'cat_col': 'Kategori', 'owasp_col': 'OWASP', 'count_col': 'Bulgu',
+        'cat_none': 'Bu koşuda sınıflandırılacak doğrulanmış bulgu yok.',
+        'immediate': 'Hemen yapılacak', 'long_term': 'Kalıcı düzeltme', 'guard': 'Engelleyen katman',
+        'owasp_note': 'Kategoriler OWASP LLM Top 10 ({url}) ile eşlenmiştir.',
         'generation': 'Nesil', 'candidates': 'Aday', 'best_fitness': 'En iyi', 'avg_fitness': 'Ortalama',
         'confirmed': 'Doğrulanan',
         'lineage': 'Soy (mutasyonlar)', 'fitness': 'Skor', 'evidence_level': 'Kanıt', 'response_hash': 'Yanıt özeti',
@@ -137,6 +145,12 @@ TEXT = {
         'evidence_pattern': 'Evidence (response digest)', 'fingerprint': 'Regression fingerprint',
         'remediation': 'Recommended remediation', 'regression': 'Regression status', 'payload': 'Attack payload (truncated)',
         'never_replayed': 'not replayed yet',
+        'category': 'Category', 'owasp': 'OWASP LLM Top 10',
+        'cat_dist': '3.1 Category distribution (OWASP LLM Top 10)',
+        'cat_col': 'Category', 'owasp_col': 'OWASP', 'count_col': 'Findings',
+        'cat_none': 'No verified finding to classify in this run.',
+        'immediate': 'Immediate mitigations', 'long_term': 'Long-term fixes', 'guard': 'Blocking guard',
+        'owasp_note': 'Categories are mapped to the OWASP LLM Top 10 ({url}).',
         'generation': 'Generation', 'candidates': 'Candidates', 'best_fitness': 'Best', 'avg_fitness': 'Average',
         'confirmed': 'Confirmed',
         'lineage': 'Lineage (mutations)', 'fitness': 'Score', 'evidence_level': 'Evidence', 'response_hash': 'Response digest',
@@ -344,6 +358,11 @@ def build_assessment_pdf(bundle: Mapping[str, Any], *, lang: str = 'tr',
         value = str(value or '—')
         return STANDARD_FINDING_TEXT_TR.get(value, value) if lang != 'en' else value
 
+    def bullets(items):
+        if not items:
+            return p('—', cell)
+        return Paragraph('<br/>'.join('• ' + escape(str(i)) for i in items), cell)
+
     def kv_table(rows, widths=(55 * mm, 115 * mm)):
         table = Table([[p(k, cell_bold), v if not isinstance(v, str) else p(v, cell)] for k, v in rows],
                       colWidths=widths)
@@ -424,10 +443,31 @@ def build_assessment_pdf(bundle: Mapping[str, Any], *, lang: str = 'tr',
     findings = list(bundle.get('findings') or [])
     payload_by_finding = {str(c.get('finding_id')): c.get('payload') for c in bundle.get('candidates') or []
                           if c.get('finding_id')}
-    if not findings:
+
+    # 3.1 Category distribution (OWASP LLM Top 10) — grouped like the console overview.
+    if findings:
+        dist: dict[str, int] = defaultdict(int)
+        for finding in findings:
+            dist[categorize(finding.get('document') or {})] += 1
+        cat_rows = []
+        for key, count in sorted(dist.items(), key=lambda kv: kv[1], reverse=True):
+            facts = category_facts(key, lang)
+            owasp = f"{facts['owasp_id']} · {facts['owasp_title']}" if facts['owasp_id'] else '—'
+            cat_rows.append([p(facts['label'], cell), p(owasp, cell), p(str(count), cell)])
+        story += [p(t['cat_dist'], h3),
+                  grid([t['cat_col'], t['owasp_col'], t['count_col']], cat_rows,
+                       [78 * mm, 72 * mm, 20 * mm]),
+                  Spacer(1, 1.5 * mm), p(t['owasp_note'].format(url=OWASP_REFERENCE), small),
+                  Spacer(1, 4 * mm)]
+    else:
         story.append(p(t['no_findings']))
+
     for index, finding in enumerate(findings, 1):
         document = finding.get('document') or {}
+        category = categorize(document)
+        facts = category_facts(category, lang)
+        fix = remediation_detail(category, document, lang)
+        owasp_label = f"{facts['owasp_id']} · {facts['owasp_title']}" if facts['owasp_id'] else '—'
         regression = finding.get('regression') or {}
         regression_text = (f"{regression.get('status')} · {_fmt_time(regression.get('last_run_at'))}"
                            if regression.get('last_run_at') else
@@ -437,6 +477,8 @@ def build_assessment_pdf(bundle: Mapping[str, Any], *, lang: str = 'tr',
             payload = payload[:MAX_PAYLOAD_EXCERPT] + ' …'
         rows = [
             (t['severity'], str(document.get('severity') or '—')),
+            (t['category'], facts['label']),
+            (t['owasp'], owasp_label),
             (t['state'], str(finding.get('state') or document.get('state') or '—')),
             (t['root_cause'], localized(document.get('root_cause'))),
             (t['mutations'], ', '.join(str(m) for m in document.get('successful_mutations') or []) or '—'),
@@ -444,6 +486,9 @@ def build_assessment_pdf(bundle: Mapping[str, Any], *, lang: str = 'tr',
             (t['fingerprint'], Paragraph(escape(str(document.get('regression_fingerprint') or '—')), code)),
             (t['regression'], regression_text),
             (t['remediation'], localized(document.get('remediation'))),
+            (t['immediate'], bullets(fix['immediate'])),
+            (t['long_term'], bullets(fix['long_term'])),
+            (t['guard'], f"{fix['guard']} ({fix['guard_level']})"),
         ]
         if payload:
             rows.append((t['payload'], Paragraph(escape(payload).replace('\n', '<br/>'), code)))
