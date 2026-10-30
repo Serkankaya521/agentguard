@@ -33,7 +33,15 @@ jobs:
           with psycopg.connect(os.environ['B1_TEST_OWNER_DSN']) as conn:
               conn.execute('CREATE ROLE ag_control LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT')
           PY
-      - run: python -m pytest -q
+      - name: pytest
+        run: |
+          set +e
+          python -m pytest -q 2>&1 | tee /tmp/pt.txt
+          code=${PIPESTATUS[0]}
+          if [ $code -ne 0 ]; then
+            grep -nE "FAILED|^E |Error|assert|Traceback|ModuleNotFound|ImportError|psycopg|reportlab|FONT" /tmp/pt.txt | tail -30 | while IFS= read -r l; do echo "::error::$l"; done
+          fi
+          exit $code
       - run: python -m compileall -q apps packages dashboard core tests benchmarks migrations
       - name: Validate deployment YAML
         run: python -c "import pathlib,yaml; files=list(pathlib.Path('infra').rglob('*.y*ml'))+list(pathlib.Path('.github').rglob('*.y*ml')); [list(yaml.safe_load_all(p.read_text())) for p in files]; print(len(files))"
@@ -46,5 +54,17 @@ jobs:
         with: {node-version: '24', cache: npm, cache-dependency-path: apps/web-console/package-lock.json}
       - run: npm ci --ignore-scripts
       - run: npm audit --audit-level=high
-      - run: npm run typecheck
-      - run: npm run build
+      - name: typecheck
+        run: |
+          set +e
+          npm run typecheck 2>&1 | tee /tmp/tc.txt
+          code=${PIPESTATUS[0]}
+          [ $code -ne 0 ] && grep -nE "error TS|: error|Error" /tmp/tc.txt | tail -30 | while IFS= read -r l; do echo "::error::$l"; done
+          exit $code
+      - name: build
+        run: |
+          set +e
+          npm run build 2>&1 | tee /tmp/bd.txt
+          code=${PIPESTATUS[0]}
+          [ $code -ne 0 ] && grep -nE "error|Error|Failed|Module not found|Type error|./src" /tmp/bd.txt | tail -40 | while IFS= read -r l; do echo "::error::$l"; done
+          exit $code
