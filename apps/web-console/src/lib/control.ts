@@ -164,6 +164,13 @@ export type GuardSummary = {
 };
 export type GuardEvents = {summary: GuardSummary; events: GuardEvent[]};
 
+export type GuardSetting = {
+  environment_id: string; environment_name: string; environment_kind: string; guard: string;
+  mode: 'off' | 'shadow' | 'enforce'; action: 'mask' | 'stop'; version: number;
+  updated_at: string | null; configured: boolean;
+};
+export type GuardSettings = {default_mode: string; settings: GuardSetting[]};
+
 export type Overview = {
   campaigns: {total: number; active: number};
   runs_30d: {total: number; completed: number; failed: number; requests: number; last_completed_at: string | null};

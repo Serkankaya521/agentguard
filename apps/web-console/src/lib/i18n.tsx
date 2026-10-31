@@ -175,6 +175,10 @@ const EN: Record<string, string> = {
   'match.known_secret': 'Known secret', 'match.generic_marker': 'Secret-shaped',
   'match.mixed': 'Mixed', 'match.none': '—',
   'guard.resWouldBlock': 'Would block', 'guard.resBlocked': 'Blocked', 'guard.resPassed': 'Passed',
+  'guard.settings': 'Guard mode', 'guard.settingsNote': 'Set, per environment, how the egress guard behaves. Off disables it, Watch records would-block events without changing traffic, Enforce masks the secret or withholds the response. Default is Watch.',
+  'guard.action': 'When enforcing', 'guard.save': 'Save', 'guard.saved': 'Saved',
+  'guard.default': 'default', 'guard.noEnvs': 'This workspace has no environment yet.',
+  'mode.off': 'Off', 'action.mask': 'Mask secret', 'action.stop': 'Withhold response',
 };
 
 const TR: Record<string, string> = {
@@ -346,6 +350,10 @@ const TR: Record<string, string> = {
   'match.known_secret': 'Bilinen sır', 'match.generic_marker': 'Sır-biçimli',
   'match.mixed': 'Karışık', 'match.none': '—',
   'guard.resWouldBlock': 'Engellerdi', 'guard.resBlocked': 'Engellendi', 'guard.resPassed': 'Geçti',
+  'guard.settings': 'Koruma modu', 'guard.settingsNote': 'Çıkış korumasının her ortamda nasıl davranacağını ayarlayın. Kapalı devre dışı bırakır, İzle trafiği değiştirmeden "engellerdim" olaylarını kaydeder, Engelle sırrı maskeler ya da cevabı tutar. Varsayılan: İzle.',
+  'guard.action': 'Engellerken', 'guard.save': 'Kaydet', 'guard.saved': 'Kaydedildi',
+  'guard.default': 'varsayılan', 'guard.noEnvs': 'Bu çalışma alanında henüz ortam yok.',
+  'mode.off': 'Kapalı', 'action.mask': 'Sırrı maskele', 'action.stop': 'Cevabı tut',
 };
 
 const DICTS: Record<Lang, Record<string, string>> = {tr: TR, en: EN};
