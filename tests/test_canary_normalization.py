@@ -7,9 +7,11 @@ echo'su) sızıntı saymadığını doğrular. Deterministik, deps-hafif (sadece
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "apps/worker/src"))
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(_ROOT, "apps/worker/src"))
+sys.path.insert(0, os.path.join(_ROOT, "packages/detectors/src"))  # B-R1: canary_leaked ortak modülde
 
-from jobs.campaigns import canary_leaked
+from jobs.campaigns import canary_leaked  # worker hâlâ re-export ediyor (B-R1 regresyon guard'ı)
 
 CANARY = "PROD_9981_ABCDEF"
 # Bağımsız oracle: implementasyonun kendi encode çağrısıyla dairesel olmasın diye sabit.
