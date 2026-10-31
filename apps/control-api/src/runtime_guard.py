@@ -15,6 +15,9 @@ from database import Database, audit
 MATCH_TYPES = ('known_secret', 'generic_marker', 'mixed', 'none')
 MODES = ('shadow', 'enforce')
 RECENT_LIMIT_MAX = 200
+SETTING_MODES = ('off', 'shadow', 'enforce')
+SETTING_ACTIONS = ('mask', 'stop')
+GUARD = 'egress_secret'
 
 
 def _match_type(matches) -> str:
@@ -106,6 +109,50 @@ def install_runtime_guard_routes(app, database: Database):
             },
             'events': [dict(row) for row in events],
         }
+
+    @app.get('/v1/runtime/guard-settings')
+    def guard_settings(request: Request, workspace_id: UUID, authorization: str | None = Header(None)):
+        """Per-environment guard mode for this workspace. Environments without a stored
+        setting report the safe default (watch), marked as not yet configured."""
+        with database.authenticated(authorization) as (conn, principal):
+            database.authorize(principal, 'tenant.read', str(workspace_id))
+            rows = conn.execute(
+                "SELECT e.id AS environment_id, e.name AS environment_name, e.kind AS environment_kind, "
+                "coalesce(s.guard,%s) AS guard, coalesce(s.mode,'shadow') AS mode, "
+                "coalesce(s.action,'mask') AS action, coalesce(s.version,0) AS version, "
+                "s.updated_at, (s.environment_id IS NOT NULL) AS configured "
+                "FROM platform.environments e "
+                "LEFT JOIN platform.runtime_guard_settings s "
+                "  ON s.tenant_id=e.tenant_id AND s.environment_id=e.id AND s.guard=%s "
+                "WHERE e.workspace_id=%s ORDER BY e.name", (GUARD, GUARD, workspace_id)).fetchall()
+        return {'default_mode': 'shadow', 'settings': [dict(row) for row in rows]}
+
+    @app.put('/v1/runtime/guard-settings/{environment_id}')
+    def set_guard_setting(environment_id: UUID, body: dict, request: Request,
+                          authorization: str | None = Header(None)):
+        """Set the egress-guard mode/action for one environment (last write wins)."""
+        body = body or {}
+        mode, action = body.get('mode'), body.get('action', 'mask')
+        if mode not in SETTING_MODES or action not in SETTING_ACTIONS:
+            raise HTTPException(422, 'INVALID_INPUT')
+        with database.authenticated(authorization) as (conn, principal):
+            env = conn.execute('SELECT kind,workspace_id FROM platform.environments WHERE id=%s',
+                               (environment_id,)).fetchone()
+            if not env:
+                raise HTTPException(404, 'NOT_FOUND')
+            database.authorize(principal, 'finding.manage', str(env['workspace_id']), env['kind'])
+            row = conn.execute(
+                'INSERT INTO platform.runtime_guard_settings'
+                '(tenant_id,workspace_id,environment_id,guard,mode,action,updated_by) '
+                'VALUES(%s,%s,%s,%s,%s,%s,%s) '
+                'ON CONFLICT (tenant_id,environment_id,guard) DO UPDATE SET '
+                'mode=excluded.mode, action=excluded.action, '
+                'version=platform.runtime_guard_settings.version+1, '
+                'updated_by=excluded.updated_by, updated_at=clock_timestamp() RETURNING *',
+                (principal.tenant_id, env['workspace_id'], environment_id, GUARD, mode, action,
+                 principal.identity_id)).fetchone()
+            audit(conn, principal, request.state.correlation_id, 'runtime.guard.settings.update', environment_id)
+            return dict(row)
 
 
 def _clip(value, length: int = 128):

@@ -432,7 +432,7 @@ def test_new_tables_remain_cross_tenant_and_audit_chain_is_complete(platform):
     other = uuid4()
     with psycopg.connect(app_dsn) as conn:
         conn.execute("SELECT set_config('app.tenant_id',%s,true)",(str(other),))
-        for table in ("credentials","identities","memberships","assets","tool_capabilities","approval_requests","findings","policies","evidence_objects","outbox","campaigns","campaign_runs","campaign_candidates","regression_cases","runtime_guard_events"):
+        for table in ("credentials","identities","memberships","assets","tool_capabilities","approval_requests","findings","policies","evidence_objects","outbox","campaigns","campaign_runs","campaign_candidates","regression_cases","runtime_guard_events","runtime_guard_settings"):
             assert conn.execute(f"SELECT count(*) FROM platform.{table}").fetchone()[0] == 0
     with psycopg.connect(owner_dsn) as conn:
         rows = conn.execute("SELECT prev_hash,record_hash FROM platform.audit WHERE tenant_id=%s ORDER BY id",(tenant,)).fetchall()
@@ -472,3 +472,26 @@ def test_runtime_egress_guard_events_ingest_and_summary(platform):
     assert {e['mode'] for e in body['events']}=={'shadow','enforce'}
     # No secret value is ever stored or returned.
     assert 'TARGET-CANARY-42' not in client.get(f'/v1/runtime/guard-events?workspace_id={workspace}',headers=headers).text
+
+
+def test_runtime_guard_settings_default_and_update(platform):
+    client, owner_dsn, app_dsn, tenant, identity, workspace, environment, headers, store = platform
+    # Default: every environment reports watch mode, not yet configured.
+    initial=client.get(f'/v1/runtime/guard-settings?workspace_id={workspace}',headers=headers).json()
+    assert initial['default_mode']=='shadow'
+    row=next(s for s in initial['settings'] if s['environment_id']==str(environment))
+    assert row['mode']=='shadow' and row['version']==0 and row['configured'] is False
+    # Set enforce/stop, then change to off — last write wins and the version bumps.
+    r1=client.put(f'/v1/runtime/guard-settings/{environment}',headers=headers,
+                  json={'mode':'enforce','action':'stop'})
+    assert r1.status_code==200 and r1.json()['mode']=='enforce' and r1.json()['version']==1
+    r2=client.put(f'/v1/runtime/guard-settings/{environment}',headers=headers,json={'mode':'off'})
+    assert r2.status_code==200 and r2.json()['mode']=='off' and r2.json()['version']==2
+    after=client.get(f'/v1/runtime/guard-settings?workspace_id={workspace}',headers=headers).json()
+    row=next(s for s in after['settings'] if s['environment_id']==str(environment))
+    assert row['mode']=='off' and row['version']==2 and row['configured'] is True
+    # Validation and unknown environment.
+    assert client.put(f'/v1/runtime/guard-settings/{environment}',headers=headers,
+                      json={'mode':'sideways'}).status_code==422
+    assert client.put(f'/v1/runtime/guard-settings/{uuid4()}',headers=headers,
+                      json={'mode':'shadow'}).status_code==404

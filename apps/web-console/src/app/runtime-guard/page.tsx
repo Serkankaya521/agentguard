@@ -1,13 +1,68 @@
 'use client';
 import {useEffect, useState} from 'react';
 import {Badge, Empty, ErrorNote, Figures, PageHead, RequireWorkspace} from '@/components/ui';
-import {control, explain, GuardEvents} from '@/lib/control';
+import {control, explain, GuardEvents, GuardSetting, GuardSettings} from '@/lib/control';
 import {useT} from '@/lib/i18n';
 import {shortId, when} from '@/lib/format';
 
 function matchLabel(key: string, t: (k: string) => string): string {
   const label = t(`match.${key}`);
   return label === `match.${key}` ? key : label;
+}
+
+const MODES: GuardSetting['mode'][] = ['off', 'shadow', 'enforce'];
+const ACTIONS: GuardSetting['action'][] = ['mask', 'stop'];
+
+type Draft = GuardSetting & {saving?: boolean; saved?: boolean};
+
+function GuardSettingsPanel({workspaceId}: {workspaceId: string}) {
+  const {t} = useT();
+  const [rows, setRows] = useState<Draft[]>();
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setRows(undefined); setError('');
+    control<GuardSettings>(`v1/runtime/guard-settings?workspace_id=${encodeURIComponent(workspaceId)}`)
+      .then(r => setRows(r.settings)).catch(e => setError(explain(e)));
+  }, [workspaceId]);
+
+  function edit(envId: string, patch: Partial<Draft>) {
+    setRows(prev => prev?.map(r => r.environment_id === envId ? {...r, ...patch, saved: false} : r));
+  }
+  async function save(row: Draft) {
+    edit(row.environment_id, {saving: true});
+    try {
+      const saved = await control<GuardSetting>(`v1/runtime/guard-settings/${row.environment_id}`,
+        {method: 'PUT', body: JSON.stringify({mode: row.mode, action: row.action})});
+      setRows(prev => prev?.map(r => r.environment_id === row.environment_id
+        ? {...r, ...saved, saving: false, saved: true} : r));
+    } catch (e) { setError(explain(e)); edit(row.environment_id, {saving: false}); }
+  }
+
+  if (error) return <ErrorNote message={error}/>;
+  if (!rows) return <p className="muted">{t('common.loading')}</p>;
+
+  return <section className="panel section">
+    <h2 style={{marginBottom: 2}}>{t('guard.settings')}</h2>
+    <p className="muted" style={{marginTop: 0}}>{t('guard.settingsNote')}</p>
+    {rows.length === 0 ? <p className="muted" style={{margin: 0}}>{t('guard.noEnvs')}</p>
+      : <div className="table-wrap"><table>
+        <thead><tr><th>{t('col.environment')}</th><th>{t('col.mode')}</th><th>{t('guard.action')}</th><th/></tr></thead>
+        <tbody>{rows.map(row => <tr key={row.environment_id}>
+          <td>{row.environment_name} <span className="hash">{row.environment_kind}</span>
+            {!row.configured && <> <Badge>{t('guard.default')}</Badge></>}</td>
+          <td><select value={row.mode} aria-label={t('col.mode')}
+            onChange={e => edit(row.environment_id, {mode: e.target.value as GuardSetting['mode']})}>
+            {MODES.map(m => <option key={m} value={m}>{t(`mode.${m}`)}</option>)}</select></td>
+          <td><select value={row.action} aria-label={t('guard.action')} disabled={row.mode !== 'enforce'}
+            onChange={e => edit(row.environment_id, {action: e.target.value as GuardSetting['action']})}>
+            {ACTIONS.map(a => <option key={a} value={a}>{t(`action.${a}`)}</option>)}</select></td>
+          <td style={{whiteSpace: 'nowrap'}}>
+            <button className="primary" disabled={row.saving} onClick={() => save(row)}>
+              {row.saving ? t('common.loading') : t('guard.save')}</button>
+            {row.saved && <span className="muted" style={{marginLeft: 8}}>{t('guard.saved')}</span>}</td>
+        </tr>)}</tbody></table></div>}
+  </section>;
 }
 
 function GuardBody({workspaceId}: {workspaceId: string}) {
@@ -33,10 +88,7 @@ function GuardBody({workspaceId}: {workspaceId: string}) {
       {label: t('guard.enforce'), value: summary.enforce},
     ]}/>
 
-    <div className="verdict signal" style={{marginTop: 20}}>
-      <span className="verdict-dot" aria-hidden="true"/>
-      <div><strong>{t('guard.shadow')} / {t('guard.enforce')}</strong><p>{t('guard.modeNote')}</p></div>
-    </div>
+    <GuardSettingsPanel workspaceId={workspaceId}/>
 
     <section className="section">
       <div style={{display: 'flex', gap: 14, flexWrap: 'wrap', color: 'var(--muted)', fontSize: 13, marginBottom: 12}}>
