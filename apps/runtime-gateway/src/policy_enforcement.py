@@ -32,7 +32,7 @@ from trajectory.incremental_state import TrajectoryStore
 
 from bounded import DetectorRunner, DetectorSignal, max_severity  # packages/detectors/src
 from runtime import default_detectors  # packages/detectors/src
-from egress import scan_response, evaluate_egress, SHADOW  # packages/detectors/src (B-R2/B-R3 egress)
+from egress import scan_response, evaluate_egress, SHADOW, MASK  # packages/detectors/src (B-R2/B-R3/B-R4 egress)
 
 from capability_registry import CapabilityRegistry, CapabilityResolution  # packages/policy/src
 from evaluator import evaluate  # packages/policy/src (pure)
@@ -173,12 +173,13 @@ class RuntimeGatewayPipeline:
         return scan_response(response, known_secrets, request)
 
     def guard_egress(self, response: str, *, known_secrets=(), request: str = "",
-                     mode: str = SHADOW, event=None):
-        """B-R3 egress guard: scan the response and, when it would block, record a would_block
-        LearningEvent off the hot path WITHOUT altering traffic (shadow). `mode` is the policy
-        egress_secret_guard flag (off|shadow|enforce); its schema/storage is Dev B, default is
-        shadow here. Enforce masking/stop is B-R4. Returns the EgressGuardResult."""
-        result = evaluate_egress(response, known_secrets, request, mode)
+                     mode: str = SHADOW, action: str = MASK, event=None):
+        """Egress guard. Scan the response; shadow (B-R3) records a would_block event off the hot
+        path and passes traffic unchanged; enforce (B-R4) masks the secret or stops the response.
+        `mode` (off|shadow|enforce) and `action` (mask|stop) are per-policy flags whose schema/
+        storage is Dev B; defaults shadow/mask. Returns the EgressGuardResult (result.response is
+        the response to return to the caller)."""
+        result = evaluate_egress(response, known_secrets, request, mode, action)
         if result.would_block:
             self._publisher.publish_egress_shadow(event, result)
         return result
