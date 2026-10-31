@@ -14,6 +14,7 @@ Shadow/enforce behaviour and the per-policy flag are B-R3/B-R4.
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import Iterable
 
 from enums import DetectorSeverity, ReasonCode
@@ -22,6 +23,11 @@ from bounded import DetectorSignal, MAX_TOTAL_CHARS, DEFAULT_BUDGET_US
 from secret_normalize import canary_leaked
 
 MAX_KNOWN_SECRETS = 64  # per-scan cap so a large secret set cannot blow the budget
+
+# B-R3 egress guard modes. This is the per-policy `egress_secret_guard` flag; its
+# storage in policy.schema.json + DB is Dev B's — here we only interpret the value.
+OFF, SHADOW, ENFORCE = "off", "shadow", "enforce"
+EGRESS_MODES = (OFF, SHADOW, ENFORCE)
 
 
 class SecretLeakEgressDetector:
@@ -50,6 +56,29 @@ class SecretLeakEgressDetector:
 
 def default_egress_detectors() -> list[SecretLeakEgressDetector]:
     return [SecretLeakEgressDetector()]
+
+
+@dataclass(frozen=True)
+class EgressGuardResult:
+    response: str          # B-R3 shadow never alters this; B-R4 enforce may replace/stop it
+    signals: tuple
+    mode: str
+    would_block: bool
+    applied: bool          # did we actually change/stop traffic? shadow -> always False (B-R4)
+
+
+def evaluate_egress(response: str, known_secrets: Iterable[str] = (), request: str = "",
+                    mode: str = SHADOW) -> EgressGuardResult:
+    """B-R3: scan a response and compute the egress outcome WITHOUT altering traffic.
+    off -> skip. shadow -> compute would_block; response passes unchanged (caller records a
+    'would_block' event). shortcut: enforce masking/stop is B-R4, so until then enforce
+    behaves like shadow (records, does not block)."""
+    mode = mode if mode in EGRESS_MODES else SHADOW
+    if mode == OFF:
+        return EgressGuardResult(response, (), mode, False, False)
+    signals = tuple(scan_response(response, known_secrets, request))
+    would_block = any(s.reason_code == ReasonCode.DETECTOR_SECRET_EGRESS for s in signals)
+    return EgressGuardResult(response, signals, mode, would_block, False)
 
 
 def scan_response(response: str, known_secrets: Iterable[str] = (), request: str = "",
