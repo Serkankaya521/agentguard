@@ -178,6 +178,7 @@ export type Overview = {
   open_findings_by_severity: Record<string, number>;
   open_findings_by_category: {key: string; owasp_id: string | null; count: number}[];
   regressions: Record<string, number>;
+  runtime_guard: {events_30d: number; would_block_30d: number; applied_30d: number; last_event_at: string | null};
   recent_runs: (Run & {campaign_name: string})[];
   posture: {score: number; open_findings: number; mttr_days: number | null; resolved_total: number;
             sla_compliance: number | null; sla_within: number; sla_breached: number};

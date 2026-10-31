@@ -364,6 +364,7 @@ def test_campaign_schedule_recovery_and_canary_to_regression(platform):
     assert b'TARGET-CANARY-42' not in report.content
     overview=client.get(f'/v1/assessments/overview?workspace_id={workspace}',headers=headers).json()
     assert overview['campaigns']['total']>=1 and overview['regressions'].get('passed',0)>=1
+    assert isinstance(overview['runtime_guard']['events_30d'],int) and overview['runtime_guard']['events_30d']>=0
     assert any(row['id']==str(run_id) for row in overview['recent_runs'])
     detail=client.get(f'/v1/findings/{finding_id}/detail',headers=headers).json()
     assert detail['finding']['state']=='RESOLVED_VERIFIED'

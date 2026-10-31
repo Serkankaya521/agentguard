@@ -374,6 +374,12 @@ def install_assessment_routes(app, database: Database):
                 "FROM platform.findings WHERE workspace_id=%s AND state='RESOLVED_VERIFIED' "
                 "AND updated_at >= date_trunc('week',clock_timestamp()) - interval '7 weeks' GROUP BY 1",
                 (workspace_id,)).fetchall()
+            # Runtime defense: egress-guard activity in the last 30 days (shadow + enforce).
+            guard = conn.execute(
+                "SELECT count(*) AS total, count(*) FILTER (WHERE would_block) AS would_block, "
+                "count(*) FILTER (WHERE applied) AS applied, max(occurred_at) AS last_event_at "
+                "FROM platform.runtime_guard_events WHERE workspace_id=%s "
+                "AND occurred_at >= clock_timestamp() - interval '30 days'", (workspace_id,)).fetchone()
         open_by_severity: dict[str, int] = {}
         by_state: dict[str, int] = {}
         for row in findings:
@@ -418,6 +424,10 @@ def install_assessment_routes(app, database: Database):
             'open_findings_by_severity': open_by_severity,
             'open_findings_by_category': open_by_category,
             'regressions': {row['status']: row['n'] for row in regressions},
+            'runtime_guard': {
+                'events_30d': guard['total'], 'would_block_30d': guard['would_block'],
+                'applied_30d': guard['applied'], 'last_event_at': guard['last_event_at'],
+            },
             'recent_runs': recent,
             'posture': {
                 'score': posture, 'open_findings': open_total,

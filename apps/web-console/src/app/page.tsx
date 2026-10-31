@@ -86,6 +86,22 @@ function OverviewBody({workspaceId}: {workspaceId: string}) {
       </section>;
     })()}
 
+    <section className="section panel">
+      <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12}}>
+        <h2 style={{marginBottom: 0}}>{t('overview.runtimeDefense')}</h2>
+        <Link className="button" href="/runtime-guard">{t('overview.viewGuard')}</Link>
+      </div>
+      {data.runtime_guard.events_30d === 0
+        ? <p className="muted" style={{margin: '10px 0 0'}}>{t('overview.guardQuiet')}</p>
+        : <div className="figures" style={{marginTop: 12}}>
+            <div className="figure"><b>{data.runtime_guard.events_30d}</b><span>{t('overview.guardEvents')}</span></div>
+            <div className={`figure ${data.runtime_guard.would_block_30d ? 'breach' : ''}`}>
+              <b>{data.runtime_guard.would_block_30d}</b><span>{t('overview.guardWouldBlock')}</span></div>
+            <div className={`figure ${data.runtime_guard.applied_30d ? 'verified' : ''}`}>
+              <b>{data.runtime_guard.applied_30d}</b><span>{t('overview.guardEnforced')}</span></div>
+          </div>}
+    </section>
+
     <section className="section">
       <h2>{t('overview.recentRuns')}</h2>
       {data.recent_runs.length === 0
