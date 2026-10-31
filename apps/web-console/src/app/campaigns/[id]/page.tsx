@@ -52,7 +52,10 @@ export default function CampaignDetail() {
     <ErrorNote message={error}/>
     <div className="split">
       <section>
-        <h2>{t('campaign.runs')}</h2>
+        <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12}}>
+          <h2 style={{marginBottom: 0}}>{t('campaign.runs')}</h2>
+          {runs.length >= 2 && <Link className="button" href={`/campaigns/${id}/compare`}>{t('run.compare')}</Link>}
+        </div>
         {runs.length === 0
           ? <div className="panel"><Empty title={t('campaign.noRuns')}>{t('campaign.noRunsBody')}</Empty></div>
           : <div className="table-wrap"><table>

@@ -76,9 +76,18 @@ export type FindingDocument = {
   evidence_pattern?: string; regression_fingerprint?: string; campaign_id?: string; run_id?: string;
 };
 
+export type CategoryRef = {key: string; owasp_id: string | null};
+
+export type RemediationDetail = {
+  summary: string; immediate: string[]; long_term: string[]; guard: string; guard_level: string;
+};
+
+export type AttackStep = {role: string; label: string; text: string; evidence_pattern?: string};
+
 export type Finding = {
   id: string; state: string; version: number; workspace_id?: string; environment_id?: string;
   document: FindingDocument; created_at: string; updated_at?: string;
+  category?: CategoryRef;
   regression?: {case_id: string; status: string; last_run_at: string | null} | null;
 };
 
@@ -107,12 +116,31 @@ export type AuditRecord = {
 
 export type FindingDetail = {
   finding: Finding & {workspace_id: string; environment_id: string};
+  category: CategoryRef;
+  remediation_detail: RemediationDetail;
+  attack_trace: AttackStep[];
+  feedback: 'good' | 'bad' | null;
   timeline: TimelineEntry[];
   regression: {case_id: string; status: string; expected_block: boolean; last_run_at: string | null;
                created_at: string} | null;
   origin: {run_id: string; campaign_id: string;
            candidate: {generation: number; lineage: string[]; payload: string; response_hash: string;
                        fitness: number; evidence_level: string}} | null;
+};
+
+export type CompareFinding = {
+  fingerprint: string; id: string; title: string; severity: string; category: string;
+  owasp_id: string | null; state: string;
+};
+export type CompareSide = RunSummary & {
+  run_id: string; scheduled_for: string | null; completed_at: string | null; status: string;
+};
+export type Compare = {
+  campaign: {id: string; name: string};
+  base: CompareSide; head: CompareSide;
+  delta: {verified_findings: number; open_findings: number; requests: number};
+  categories: {key: string; owasp_id: string | null; base: number; head: number; delta: number}[];
+  findings: {fixed: CompareFinding[]; new: CompareFinding[]; persisting: CompareFinding[]};
 };
 
 export type CoverageCampaign = {
@@ -130,6 +158,7 @@ export type Overview = {
   runs_30d: {total: number; completed: number; failed: number; requests: number; last_completed_at: string | null};
   findings_by_state: Record<string, number>;
   open_findings_by_severity: Record<string, number>;
+  open_findings_by_category: {key: string; owasp_id: string | null; count: number}[];
   regressions: Record<string, number>;
   recent_runs: (Run & {campaign_name: string})[];
   posture: {score: number; open_findings: number; mttr_days: number | null; resolved_total: number;

@@ -5,13 +5,13 @@ import {useCallback, useEffect, useState} from 'react';
 import {Badge, ErrorNote, PageHead} from '@/components/ui';
 import {control, explain, FindingDetail, idempotencyKey} from '@/lib/control';
 import {useT} from '@/lib/i18n';
-import {auditLabel, findingTone, regressionTone, shortId, sla, when} from '@/lib/format';
+import {auditLabel, categoryLabel, findingTone, owaspLabel, regressionTone, shortId, sla, when} from '@/lib/format';
 import {NEXT} from '@/lib/findings';
 
 const label = (state: string) => state.toLowerCase().replaceAll('_', ' ');
 
 export default function FindingPage() {
-  const {t} = useT();
+  const {t, lang} = useT();
   const {id} = useParams<{id: string}>();
   const [data, setData] = useState<FindingDetail>();
   const [error, setError] = useState('');
@@ -19,8 +19,8 @@ export default function FindingPage() {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => {
-    control<FindingDetail>(`v1/findings/${id}/detail`).then(setData).catch(e => setError(explain(e)));
-  }, [id]);
+    control<FindingDetail>(`v1/findings/${id}/detail?lang=${lang}`).then(setData).catch(e => setError(explain(e)));
+  }, [id, lang]);
   useEffect(load, [load]);
 
   async function act(work: () => Promise<unknown>, done = '') {
@@ -33,9 +33,12 @@ export default function FindingPage() {
   const replay = (caseId: string) => act(() => control(`v1/regression-cases/${caseId}/runs`,
     {method: 'POST', headers: {'Idempotency-Key': idempotencyKey(`replay-${caseId}`)}}),
     t('run.replayQueued'));
+  const sendFeedback = (verdict: 'good' | 'bad' | 'clear') => act(
+    () => control(`v1/findings/${id}/feedback`, {method: 'POST', body: JSON.stringify({verdict})}),
+    t('finding.fbSaved'));
 
   if (!data) return error ? <ErrorNote message={error}/> : <p className="muted">{t('common.loading')}</p>;
-  const {finding, origin, regression, timeline} = data;
+  const {finding, origin, regression, timeline, category, remediation_detail, attack_trace, feedback} = data;
   const doc = finding.document;
   const status = sla(doc.severity, finding.state, finding.created_at, finding.updated_at, t);
   const severe = (doc.severity || '').toUpperCase();
@@ -61,6 +64,14 @@ export default function FindingPage() {
         <span>{t('finding.regression')}</span></div>
     </div>
 
+    <div style={{display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', margin: '4px 0 2px'}}>
+      <Badge tone="accent">{t('finding.category')}: {categoryLabel(category.key, t)}</Badge>
+      {category.owasp_id && <Badge>
+        <a href="https://genai.owasp.org/llm-top-10/" target="_blank" rel="noreferrer"
+           style={{color: 'inherit', textDecoration: 'none'}} title={t('finding.owasp')}>{owaspLabel(category.owasp_id, t)}</a>
+      </Badge>}
+    </div>
+
     <div className="split section">
       <section>
         <div className="panel">
@@ -74,9 +85,18 @@ export default function FindingPage() {
               <dt>{t('evo.responseDigest')}</dt><dd className="hash">{origin.candidate.response_hash}</dd>
               <dt>{t('common.from')}</dt><dd><Link href={`/campaigns/${origin.campaign_id}/runs/${origin.run_id}`}>{t('col.run')} {shortId(origin.run_id)}</Link></dd>
             </dl>
-            <h3 style={{margin: '14px 0 6px', fontSize: 14}}>{t('finding.payload')}</h3>
-            <pre className="hash" style={{whiteSpace: 'pre-wrap', margin: 0, background: '#f8f9fb',
-              border: '1px solid var(--line-soft)', borderRadius: 6, padding: '10px 12px', maxHeight: 220, overflow: 'auto'}}>{origin.candidate.payload}</pre>
+            <h3 style={{margin: '14px 0 2px', fontSize: 14}}>{t('finding.attackTrace')}</h3>
+            <p className="muted" style={{margin: '0 0 8px'}}>{t('finding.attackTraceNote')}</p>
+            <ol className="trace">{(attack_trace.length ? attack_trace : [
+              {role: 'attack', label: t('finding.payload'), text: origin.candidate.payload}]).map((step, i) =>
+              <li key={i} className={`trace-step trace-${step.role}`}>
+                <div className="trace-label">{step.label}</div>
+                {step.role === 'attack'
+                  ? <pre className="trace-payload">{step.text}</pre>
+                  : <p className="trace-text">{step.text}</p>}
+                {step.evidence_pattern && <div className="hash trace-evidence">{step.evidence_pattern}</div>}
+              </li>)}
+            </ol>
           </> : <p className="muted" style={{margin: 0}}>{t('finding.manual')}</p>}
         </div>
 
@@ -88,7 +108,20 @@ export default function FindingPage() {
             <dt>{t('finding.evidencePattern')}</dt><dd className="hash">{doc.evidence_pattern || '—'}</dd>
             <dt>{t('finding.fingerprint')}</dt><dd className="hash">{doc.regression_fingerprint || '—'}</dd>
           </dl>
-          <div className="notice" style={{marginTop: 12}}><strong>{t('finding.recommendedFix')}</strong> {doc.remediation || '—'}</div>
+          <div className="notice" style={{marginTop: 12}}><strong>{t('finding.recommendedFix')}</strong> {remediation_detail.summary || doc.remediation || '—'}</div>
+          <div className="fix-grid">
+            <div>
+              <h3 className="fix-head">{t('finding.immediate')}</h3>
+              <ul className="fix-list">{remediation_detail.immediate.map((item, i) => <li key={i}>{item}</li>)}</ul>
+            </div>
+            <div>
+              <h3 className="fix-head">{t('finding.longTerm')}</h3>
+              <ul className="fix-list">{remediation_detail.long_term.map((item, i) => <li key={i}>{item}</li>)}</ul>
+            </div>
+          </div>
+          <div style={{marginTop: 10}}>
+            <Badge tone="accent">{t('finding.guard')}: {remediation_detail.guard} · {remediation_detail.guard_level}</Badge>
+          </div>
         </div>
 
         {regression && <div className="panel">
@@ -123,6 +156,18 @@ export default function FindingPage() {
             <dt>{t('finding.lastChange')}</dt><dd>{when(finding.updated_at)}</dd>
             <dt>{t('finding.age')}</dt><dd>{status.ageDays} {t('finding.days')}</dd>
           </dl>
+        </div>
+        <div className="panel">
+          <h2>{t('finding.feedbackQ')}</h2>
+          <div className="actions" style={{marginTop: 4}}>
+            <button disabled={busy} className={feedback === 'good' ? 'primary' : ''}
+              aria-pressed={feedback === 'good'} onClick={() => sendFeedback('good')}>{t('finding.fbGood')}</button>
+            <button disabled={busy} className={feedback === 'bad' ? 'danger' : ''}
+              aria-pressed={feedback === 'bad'} onClick={() => sendFeedback('bad')}>{t('finding.fbBad')}</button>
+            {feedback && <button disabled={busy} onClick={() => sendFeedback('clear')}>{t('finding.fbClear')}</button>}
+          </div>
+          {feedback && <p className="muted" style={{margin: '8px 0 0'}}>
+            {feedback === 'good' ? t('finding.fbGoodSet') : t('finding.fbBadSet')}</p>}
         </div>
       </section>
     </div>
