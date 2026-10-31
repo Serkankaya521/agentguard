@@ -32,7 +32,7 @@ from trajectory.incremental_state import TrajectoryStore
 
 from bounded import DetectorRunner, DetectorSignal, max_severity  # packages/detectors/src
 from runtime import default_detectors  # packages/detectors/src
-from egress import scan_response  # packages/detectors/src (B-R2 egress pass)
+from egress import scan_response, evaluate_egress, SHADOW  # packages/detectors/src (B-R2/B-R3 egress)
 
 from capability_registry import CapabilityRegistry, CapabilityResolution  # packages/policy/src
 from evaluator import evaluate  # packages/policy/src (pure)
@@ -171,6 +171,17 @@ class RuntimeGatewayPipeline:
         signals. Deterministic/bounded, hot-path safe. The shadow/enforce decision and
         the per-policy egress_secret_guard flag are B-R3/B-R4; this only detects."""
         return scan_response(response, known_secrets, request)
+
+    def guard_egress(self, response: str, *, known_secrets=(), request: str = "",
+                     mode: str = SHADOW, event=None):
+        """B-R3 egress guard: scan the response and, when it would block, record a would_block
+        LearningEvent off the hot path WITHOUT altering traffic (shadow). `mode` is the policy
+        egress_secret_guard flag (off|shadow|enforce); its schema/storage is Dev B, default is
+        shadow here. Enforce masking/stop is B-R4. Returns the EgressGuardResult."""
+        result = evaluate_egress(response, known_secrets, request, mode)
+        if result.would_block:
+            self._publisher.publish_egress_shadow(event, result)
+        return result
 
     # --- helpers -----------------------------------------------------------
     def _precomputed_high(self, event) -> bool:

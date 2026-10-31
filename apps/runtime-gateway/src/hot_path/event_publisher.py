@@ -52,6 +52,35 @@ class AsyncEventPublisher:
                 "fail_mode": runtime_decision.fail_mode.value,
             }),
         }
+        return self._enqueue(learning)
+
+    def publish_egress_shadow(self, event, result) -> bool:
+        """B-R3: record an egress would_block as a LearningEvent, off the hot path. Carries
+        only reason codes and match class, never the secret value; shadow means computed and
+        recorded but not applied to traffic."""
+        trace_id = getattr(event, "trace_id", None) or "unknown"
+        tenant_id = getattr(getattr(event, "tenant", None), "tenant_id", None) or "unknown"
+        learning = {
+            "schema_version": "1.0.0",
+            "event_id": f"le-egress-{tenant_id}-{trace_id}-{getattr(event, 'event_id', '')}",
+            "trace_id": trace_id,
+            "tenant_id": tenant_id,
+            "kind": "telemetry",
+            "priority": LEARNING_PRIORITY,
+            "occurred_at": datetime.now(timezone.utc).isoformat(),
+            "payload_ref": getattr(event, "payload_hash", None),
+            "summary": redact({
+                "guard": "egress_secret",
+                "mode": result.mode,
+                "would_block": result.would_block,
+                "applied": result.applied,
+                "reason_codes": [s.reason_code.value for s in result.signals],
+                "matches": [s.evidence.get("match") for s in result.signals],
+            }),
+        }
+        return self._enqueue(learning)
+
+    def _enqueue(self, learning: dict) -> bool:
         with self._lock:
             eid = learning["event_id"]
             if eid in self._seen_set:
