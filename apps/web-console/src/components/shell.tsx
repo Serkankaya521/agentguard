@@ -8,7 +8,8 @@ import {useWorkspace, WorkspaceProvider} from '@/lib/workspace';
 const NAV: {heading: string; links: [string, string][]}[] = [
   {heading: 'nav.testing', links: [['/', 'nav.overview'], ['/campaigns', 'nav.campaigns'], ['/coverage', 'nav.coverage'],
                                    ['/findings', 'nav.findings'], ['/evidence', 'nav.regressions']]},
-  {heading: 'nav.runtime', links: [['/policies', 'nav.policies'], ['/approvals', 'nav.approvals'], ['/assets', 'nav.assets']]},
+  {heading: 'nav.runtime', links: [['/runtime-guard', 'nav.runtimeGuard'], ['/policies', 'nav.policies'],
+                                   ['/approvals', 'nav.approvals'], ['/assets', 'nav.assets']]},
   {heading: 'nav.admin', links: [['/workspaces', 'nav.workspaces'], ['/reports', 'nav.reports'],
                                  ['/integrations', 'nav.integrations'], ['/audit', 'nav.audit'],
                                  ['/operations', 'nav.operations']]},

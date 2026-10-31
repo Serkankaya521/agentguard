@@ -432,7 +432,7 @@ def test_new_tables_remain_cross_tenant_and_audit_chain_is_complete(platform):
     other = uuid4()
     with psycopg.connect(app_dsn) as conn:
         conn.execute("SELECT set_config('app.tenant_id',%s,true)",(str(other),))
-        for table in ("credentials","identities","memberships","assets","tool_capabilities","approval_requests","findings","policies","evidence_objects","outbox","campaigns","campaign_runs","campaign_candidates","regression_cases"):
+        for table in ("credentials","identities","memberships","assets","tool_capabilities","approval_requests","findings","policies","evidence_objects","outbox","campaigns","campaign_runs","campaign_candidates","regression_cases","runtime_guard_events"):
             assert conn.execute(f"SELECT count(*) FROM platform.{table}").fetchone()[0] == 0
     with psycopg.connect(owner_dsn) as conn:
         rows = conn.execute("SELECT prev_hash,record_hash FROM platform.audit WHERE tenant_id=%s ORDER BY id",(tenant,)).fetchall()
@@ -442,3 +442,33 @@ def test_new_tables_remain_cross_tenant_and_audit_chain_is_complete(platform):
             assert record_hash.startswith("sha256:") and len(record_hash) == 71
             previous = record_hash
     assert client.get('/v1/audit/verify',headers=headers).json() == {'valid':True}
+
+
+def test_runtime_egress_guard_events_ingest_and_summary(platform):
+    client, owner_dsn, app_dsn, tenant, identity, workspace, environment, headers, store = platform
+    ev=lambda **kw:{'workspace_id':str(workspace),'environment_id':str(environment),
+                    'guard':'egress_secret',**kw}
+    # Ingest: a shadow would-block, an enforced block, and a clean pass.
+    assert client.post('/v1/runtime/guard-events',headers=headers,json=ev(
+        mode='shadow',would_block=True,applied=False,matches=['known_secret'],
+        reason_codes=['DETECTOR_SECRET_EGRESS'],trace_id='t-1',agent_id='agent-9')).status_code==201
+    assert client.post('/v1/runtime/guard-events',headers=headers,json=ev(
+        mode='enforce',would_block=True,applied=True,matches=['generic_marker'])).status_code==201
+    assert client.post('/v1/runtime/guard-events',headers=headers,json=ev(
+        mode='shadow',would_block=False,applied=False,matches=[])).status_code==201
+    # Validation and tenant/workspace binding.
+    assert client.post('/v1/runtime/guard-events',headers=headers,json=ev(
+        mode='nope',would_block=True,applied=False)).status_code==422
+    assert client.post('/v1/runtime/guard-events',headers=headers,json=ev(
+        environment_id=str(uuid4()),mode='shadow',would_block=True,applied=False)).status_code==404
+    # Read: summary + recent events for the workspace.
+    body=client.get(f'/v1/runtime/guard-events?workspace_id={workspace}',headers=headers).json()
+    s=body['summary']
+    assert s['total']==3 and s['would_block']==2 and s['applied']==1
+    assert s['shadow']==2 and s['enforce']==1
+    assert s['by_match'].get('known_secret')==1 and s['by_match'].get('generic_marker')==1 and s['by_match'].get('none')==1
+    assert s['last_7d']==3 and s['last_event_at']
+    assert len(body['events'])==3
+    assert {e['mode'] for e in body['events']}=={'shadow','enforce'}
+    # No secret value is ever stored or returned.
+    assert 'TARGET-CANARY-42' not in client.get(f'/v1/runtime/guard-events?workspace_id={workspace}',headers=headers).text
