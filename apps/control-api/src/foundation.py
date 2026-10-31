@@ -265,5 +265,7 @@ def create_app(dsn=None, *, policy_signing_key=None, approval_signing_key=None,
                             campaign_target_allowlist)
     from assessments import install_assessment_routes
     install_assessment_routes(app, platform_database)
+    from runtime_guard import install_runtime_guard_routes
+    install_runtime_guard_routes(app, platform_database)
     app.add_middleware(BodyLimit)
     return app

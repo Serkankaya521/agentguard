@@ -160,6 +160,21 @@ const EN: Record<string, string> = {
   'compare.metric': 'Metric', 'compare.delta': 'Change', 'compare.verified': 'Verified findings',
   'compare.openFindings': 'Open findings', 'compare.requests': 'Requests', 'compare.noFindings': 'None.',
   'compare.verdict': 'Verdict', 'col.category': 'Category', 'col.owasp': 'OWASP',
+  'nav.runtimeGuard': 'Secret guard',
+  'guard.title': 'Egress secret guard',
+  'guard.desc': 'What the runtime guard caught on the way out — secrets leaking in agent responses. In watch mode it records what it would block; in enforce mode it masks the secret or withholds the response.',
+  'guard.total': 'Events', 'guard.wouldBlock': 'Would block', 'guard.applied': 'Enforced',
+  'guard.shadow': 'Watch mode', 'guard.enforce': 'Enforce mode',
+  'guard.last7': 'Last 7 days', 'guard.last30': 'Last 30 days', 'guard.lastEvent': 'Last event',
+  'guard.recent': 'Recent events',
+  'guard.none': 'No guard events yet',
+  'guard.noneBody': 'When the runtime egress guard runs against live traffic, what it catches appears here. In watch mode nothing is blocked — it only records.',
+  'guard.modeNote': 'Watch mode records would-block events without changing traffic; enforce mode masks the secret or withholds the response. Raw responses and secret values are never stored.',
+  'col.mode': 'Mode', 'col.result': 'Result', 'col.match': 'Match',
+  'mode.shadow': 'Watch', 'mode.enforce': 'Enforce',
+  'match.known_secret': 'Known secret', 'match.generic_marker': 'Secret-shaped',
+  'match.mixed': 'Mixed', 'match.none': '—',
+  'guard.resWouldBlock': 'Would block', 'guard.resBlocked': 'Blocked', 'guard.resPassed': 'Passed',
 };
 
 const TR: Record<string, string> = {
@@ -316,6 +331,21 @@ const TR: Record<string, string> = {
   'compare.metric': 'Ölçüt', 'compare.delta': 'Değişim', 'compare.verified': 'Doğrulanmış bulgu',
   'compare.openFindings': 'Açık bulgu', 'compare.requests': 'İstek', 'compare.noFindings': 'Yok.',
   'compare.verdict': 'Sonuç', 'col.category': 'Kategori', 'col.owasp': 'OWASP',
+  'nav.runtimeGuard': 'Sır koruması',
+  'guard.title': 'Çıkış sır koruması',
+  'guard.desc': 'Çalışma-zamanı korumasının çıkışta yakaladıkları — ajan cevaplarında sızan sırlar. İzle modunda neyi engelleyeceğini kaydeder; engelle modunda sırrı maskeler ya da cevabı tutar.',
+  'guard.total': 'Olay', 'guard.wouldBlock': 'Engellerdi', 'guard.applied': 'Engellendi',
+  'guard.shadow': 'İzle modu', 'guard.enforce': 'Engelle modu',
+  'guard.last7': 'Son 7 gün', 'guard.last30': 'Son 30 gün', 'guard.lastEvent': 'Son olay',
+  'guard.recent': 'Son olaylar',
+  'guard.none': 'Henüz koruma olayı yok',
+  'guard.noneBody': 'Çalışma-zamanı çıkış koruması canlı trafikte çalıştığında yakaladıkları burada görünür. İzle modunda hiçbir şey engellenmez — yalnızca kaydedilir.',
+  'guard.modeNote': 'İzle modu, trafiği değiştirmeden "engellerdim" olaylarını kaydeder; engelle modu sırrı maskeler ya da cevabı tutar. Ham cevaplar ve sır değerleri asla saklanmaz.',
+  'col.mode': 'Mod', 'col.result': 'Sonuç', 'col.match': 'Eşleşme',
+  'mode.shadow': 'İzle', 'mode.enforce': 'Engelle',
+  'match.known_secret': 'Bilinen sır', 'match.generic_marker': 'Sır-biçimli',
+  'match.mixed': 'Karışık', 'match.none': '—',
+  'guard.resWouldBlock': 'Engellerdi', 'guard.resBlocked': 'Engellendi', 'guard.resPassed': 'Geçti',
 };
 
 const DICTS: Record<Lang, Record<string, string>> = {tr: TR, en: EN};

@@ -153,6 +153,17 @@ export type Coverage = {
   scheduled: number; stale: number; never_run: number; campaigns: CoverageCampaign[];
 };
 
+export type GuardEvent = {
+  id: string; guard: string; mode: 'shadow' | 'enforce'; would_block: boolean; applied: boolean;
+  match_type: string; severity: string; reason_codes: string[];
+  trace_id: string | null; agent_id: string | null; session_id: string | null; occurred_at: string;
+};
+export type GuardSummary = {
+  total: number; would_block: number; applied: number; shadow: number; enforce: number;
+  last_7d: number; last_30d: number; last_event_at: string | null; by_match: Record<string, number>;
+};
+export type GuardEvents = {summary: GuardSummary; events: GuardEvent[]};
+
 export type Overview = {
   campaigns: {total: number; active: number};
   runs_30d: {total: number; completed: number; failed: number; requests: number; last_completed_at: string | null};
