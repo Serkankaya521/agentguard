@@ -19,6 +19,16 @@ def _fold(text):
     return ''.join(text.translate(_HOMOGLYPHS).split())
 
 
+def secret_variants(secret):
+    """The literal forms a secret can appear as: plain, base64 (no padding), lower/upper hex.
+    Homoglyph/whitespace obfuscation is matched by folding, not by a literal variant."""
+    if not secret:
+        return ()
+    b = secret.encode()
+    return tuple(dict.fromkeys(v for v in (secret, base64.b64encode(b).decode().rstrip('='),
+                                           b.hex(), b.hex().upper()) if v))
+
+
 def canary_leaked(canary, response, prompt=''):
     """True when the server-side canary is disclosed in the response but was absent from the attack payload.
     Catches plain, base64, hex and homoglyph/whitespace-obfuscated disclosure. ReDoS-safe: substring and
@@ -26,9 +36,19 @@ def canary_leaked(canary, response, prompt=''):
     larger encoded blob (3-byte alignment); widen if targets begin encoding whole responses."""
     if not canary:
         return False
-    b = canary.encode()
-    for v in (canary, base64.b64encode(b).decode().rstrip('='), b.hex(), b.hex().upper()):
-        if v and v in response and v not in prompt:
+    for v in secret_variants(canary):
+        if v in response and v not in prompt:
             return True
     f = _fold(canary)
     return bool(f) and f in _fold(response) and f not in _fold(prompt)
+
+
+def mask_secrets(text, secrets, mask='****'):
+    """Replace every literal (plain/base64/hex) occurrence of each known secret with `mask`.
+    Homoglyph/whitespace-obfuscated forms are NOT located here; the caller must re-scan the
+    masked text and stop the response if anything still leaks."""
+    for secret in secrets:
+        for v in secret_variants(secret):
+            if v in text:
+                text = text.replace(v, mask)
+    return text

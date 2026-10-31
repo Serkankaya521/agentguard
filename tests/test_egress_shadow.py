@@ -34,10 +34,11 @@ def test_shadow_detects_but_never_alters_response():
     assert r.response == RESP          # cevap aynen geçer
 
 
-def test_enforce_in_br3_records_but_does_not_block_yet():
-    # shortcut: enforce maskeleme/durdurma B-R4; B-R3'te shadow gibi davranır.
+def test_enforce_now_applies_masking():
+    # B-R4: enforce artık gerçekten müdahale eder (maskele); shadow'dan farkı burada.
     r = evaluate_egress(RESP, known_secrets=[CANARY], request="x", mode=ENFORCE)
-    assert r.would_block is True and r.applied is False and r.response == RESP
+    assert r.would_block is True and r.applied is True
+    assert CANARY not in r.response and "****" in r.response
 
 
 def test_unknown_mode_defaults_to_shadow():
